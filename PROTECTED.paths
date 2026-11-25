@@ -8,3 +8,10 @@ scripts/install.sh
 evals/configs/
 proposals/accepted/
 telemetry/events.schema.json
+# Live surfaces and gate scripts (final review). After install, agents/ and skills/ ARE the live
+# ~/.claude config (symlinks); they change only through a human-merged proposal branch.
+# memory/advisor/ is NOT listed: it is writable by the Advisor only (G6). See docs/architecture.md.
+agents/
+routing/
+skills/
+scripts/

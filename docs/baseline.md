@@ -1,6 +1,6 @@
 # Baseline: owner's agent definitions
 
-Source: `headless-dashboard/claude-home/` (owner's folder, untracked, read-only), imported 2026-11-25.
+Source: `headless-dashboard/claude-home/` (owner's folder, committed in `db036c2`, read-only: this repo never modifies it), imported 2026-11-25.
 `agents/{orchestrator,worker,advisor}.md` are byte-for-byte copies of `headless-dashboard/claude-home/agents/*.md`; later RSI diffs are against them.
 
 ## The owner's system (file list)
@@ -23,3 +23,9 @@ Source: `headless-dashboard/claude-home/` (owner's folder, untracked, read-only)
 - `events.jsonl` is written to `~/.claude/agent-dashboard/events.jsonl` (`log_event.py:27,84`; override with `AGENT_DASHBOARD_DIR`), not to this repo's `telemetry/`.
 - Content-free by default: report text is parsed into fields and dropped unless `AGENT_DASHBOARD_LOG_CONTENT=1` (`log_event.py:7-9`).
 - `install.sh` edits `~/.claude/settings.json` (merges hook entries, writes a `.bak-<ts>` copy; `install.sh:35-64`) and writes into `~/.claude` and `~/.local/bin` (`install.sh:28-32`). This repo's `scripts/install.sh` never edits `settings.json`.
+
+## Single source of truth and the two installers
+
+- After this repo's `scripts/install.sh --apply`, `~/.claude/agents/*.md` are symlinks into this repo's `agents/`. This repo is the single source of truth for `agents/`, `skills/` and `memory/advisor/`; `headless-dashboard/claude-home/agents/` stays the frozen baseline that RSI diffs are measured against.
+- The owner's `install.sh` runs `cp "$SRC/claude-home/agents/"*.md "$CLAUDE_HOME/agents/"` (`headless-dashboard/install.sh:83`). `cp` follows symlinks, so once ours are in place it overwrites this repo's `agents/*.md` with the baseline copies and silently reverts accepted RSI changes.
+- This repo's `scripts/install.sh` prints a WARNING when `~/.claude/hooks/log_event.py` exists (the owner's installer has run). Rerunning our installer alone does not undo it, because the links stay in place and only their targets changed. Remedy: after any owner-installer run, check `git diff -- agents/` here, restore with `git checkout -- agents/`, then rerun `scripts/install.sh`; or edit the owner's installer to skip destinations that are symlinks. Open question Q-o (report §10).

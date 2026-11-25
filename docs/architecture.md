@@ -1,6 +1,6 @@
 # Architecture (baseline)
 
-The system as described by its owner; not yet present on this machine.
+The owner's system, imported from `headless-dashboard/claude-home/` (see `docs/baseline.md`).
 It is a three-agent coding workflow on Claude Code, installed globally in `~/.claude`.
 
 ## Agents
@@ -36,19 +36,34 @@ The Mechanism column and G9-G14 are proposed (report §9) and need human approva
 | G6 | Advisor may write only to its memory folder | active | no | PreToolUse path check + sandbox write scope |
 | G7 | Worker may write only inside the git root | active | no | PreToolUse path check + sandbox |
 | G8 | Worker may not edit the test files named in DONE_WHEN | active | no | PreToolUse path check on Edit/Write/Bash |
-| G9 | No agent writes `PROTECTED.paths` | proposed (proposed — report §9) | no | PreToolUse path check for all agents; sandbox deny |
-| G10 | Eval isolation | proposed (proposed — report §9) | no | harness: fresh worktree + memory snapshot per trial; heldout unreadable outside harness |
-| G11 | Memory write provenance | proposed (proposed — report §9) | no | `outcome: worked` only from hook-verified `task_outcome` |
-| G12 | Proposal scope | proposed (proposed — report §9) | no | proposer writes only `proposals/inbox/`; one surface; no `PROTECTED.paths`; G1-G8 blocks byte-identical; `hooks/` and `PROTECTED.paths` change only by a human |
-| G13 | Audit-log integrity | proposed (proposed — report §9) | no | append-only, hash-chained events; logger outside agent-writable paths |
-| G14 | Test-tamper heuristics | proposed (proposed — report §9) | no | flag skip markers, `sys.exit`, conftest/operator patches in Worker diffs |
+| G9 | No agent writes `PROTECTED.paths` | proposed | no | PreToolUse path check for all agents; sandbox deny |
+| G10 | Eval isolation | proposed | no | harness: fresh worktree + memory snapshot per trial; heldout and `evals/graders/` read-denied for every agent session: managed-settings Read/Grep/Glob deny + sandbox read-deny for Bash (report §5; fallback: store heldout outside the repo) |
+| G11 | Memory write provenance | proposed | no | `outcome: worked` only from hook-verified `task_outcome` |
+| G12 | Proposal scope | proposed | no | proposer writes only `proposals/inbox/`; one surface; no `PROTECTED.paths`; G1-G8 blocks byte-identical; `hooks/` and `PROTECTED.paths` change only by a human |
+| G13 | Audit-log integrity | proposed | no | append-only, hash-chained events; logger outside agent-writable paths |
+| G14 | Test-tamper heuristics | proposed | no | flag skip markers, `sys.exit`, conftest/operator patches in Worker diffs |
 
 Spec: `hooks/guardrails.yaml`. No hook code exists in this repo. G1-G8 are never removed or weakened.
 
-Proposed (proposed — report §9) additions to `PROTECTED.paths`, now on disk and added: `evals/configs/`,
-`proposals/accepted/`, `telemetry/events.schema.json`. To protect once created: `evals/harness/`
-(and `evals/graders/stats.py`, already covered by `evals/graders/`). Any change to `hooks/` or
-`PROTECTED.paths` requires human approval.
+Proposed (report §9) additions to `PROTECTED.paths`, now on disk and added: `evals/configs/`,
+`proposals/accepted/`, `telemetry/events.schema.json`, and the live surfaces and gate scripts
+`agents/`, `routing/`, `skills/`, `scripts/` (covers `check_scaffold.py`, `check_report.py`,
+`test_install.sh` and the future `check_proposal.py` and `memory_lint.py`). To protect once created:
+`evals/harness/` (and `evals/graders/stats.py`, already covered by `evals/graders/`). Any change to
+`hooks/` or `PROTECTED.paths` requires human approval.
+
+### Live surfaces (proposed — report §9)
+
+After `scripts/install.sh --apply`, `~/.claude/agents/*.md`, `~/.claude/skills/*` and
+`~/.claude/agent-memory/advisor/` are symlinks into this repo, so the repo files ARE the live config.
+
+- `agents/`, `routing/` and `skills/` change only through a human-merged proposal branch (`rsi/<id>`).
+- `memory/advisor/` is writable only by the Advisor (G6). It is deliberately not in `PROTECTED.paths`.
+- Every path check (G6, G7, G9, G12) compares resolved real paths: the repo path and the `~/.claude`
+  path are aliases of the same files.
+- The Harden work (ADR-0001) is done by a human, or by an agent system that is not pointed at this repo.
+- Held-out tasks and hidden tests are read-denied to agents by the G10 mechanism above; `PROTECTED.paths`
+  blocks writes only.
 
 ## Decisions (proposed — report §9)
 
@@ -69,6 +84,9 @@ OpenTelemetry export to Langfuse, Honeycomb or Grafana.
 10-20 real tasks comparing: single agent, Orchestrator + Worker, full system. Tools: promptfoo or
 Inspect SWE.
 
+Proposed change (report §5, ADR-0002): 10-20 tasks cannot detect +15 points. One primary comparison
+(full vs single) needs N >= 50 (A) to ~80 (B) tasks at K = 3; below that the result is descriptive only.
+
 ## RSI-modifiable surfaces
 
 1 prompts/agent definitions; 2 advisor memory (content, structure, consolidation/deletion rules);
@@ -80,10 +98,10 @@ limits). Human approval plus an eval gate. Model weights are out of scope.
 Current (owner's): Harden, then Measure (gate: +15 points over single agent), then Scale (parallel
 worktrees), then Memory (semantic-search MCP).
 
-Proposed (proposed — report §9):
+Proposed (report §9):
 
-- Harden: enforce G1-G8 as blocking hooks (ADR-0001), pass X1 40/40; telemetry v1 (ADR-0005); memory v2
-  schema (ADR-0003). No RSI proposals before X1 passes.
+- Harden: enforce G1-G8 as blocking hooks (ADR-0001), pass X1 (both layers, report §8); telemetry v1 (ADR-0005);
+  memory v2 schema (ADR-0003). No RSI proposals before X1 passes.
 - Measure: build 50-80 audited tasks (train/heldout/rotating); X2. Gate: one primary comparison (full vs
   single), paired 95% CI lower bound > 0, sized for 80% power at +15: N >= 50 (A) to ~80 (B), K = 3,
   recomputed with omega^2/sigma^2 from X2; descriptive-only below that (ADR-0002).

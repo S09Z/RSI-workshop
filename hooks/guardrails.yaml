@@ -3,6 +3,11 @@
 # status: active = adopted in the design; enforced = a blocking hook exists.
 # enforced: false for every guardrail today (docs/baseline.md: all hooks are async loggers).
 # proposed_mechanism fields and G9-G14 are proposed (report §9) and need human approval.
+# Any future G1-G8 byte-identity check (G12) must baseline against commit 826985b or later:
+# G1-G8 gained the proposed_mechanism and enforced fields in that commit, and G6's proposed_mechanism
+# was extended (resolved real paths) in the final-review fix commit. Baseline against the newest of these.
+# Live surfaces (report §9): after scripts/install.sh, ~/.claude/agents/, skills/ and agent-memory/advisor/
+# are symlinks into this repo, so every path check must compare resolved real paths.
 guardrails:
   - id: G1
     name: report contract check
@@ -45,7 +50,7 @@ guardrails:
     status: active
     enforced: false
     protected: true
-    proposed_mechanism: PreToolUse path check + sandbox write scope   # proposed (report §9)
+    proposed_mechanism: PreToolUse path check + sandbox write scope; compare resolved real paths, since ~/.claude/agent-memory/advisor/ and the repo's memory/advisor/ are aliases via install.sh symlinks   # proposed (report §9)
   - id: G7
     name: Worker may write only inside the git root
     enforces: Worker writes stay inside the git root
@@ -66,21 +71,21 @@ guardrails:
     status: proposed
     enforced: false
     protected: true
-    mechanism: PreToolUse path check for all agents; sandbox deny   # proposed (report §9)
+    mechanism: PreToolUse path check for all agents on resolved real paths (repo and ~/.claude paths are symlink aliases); sandbox deny   # proposed (report §9)
   - id: G10
     name: Eval isolation
     enforces: each eval trial runs in a fresh worktree with a memory snapshot; heldout is unreadable outside the harness
     status: proposed
     enforced: false
     protected: true
-    mechanism: harness enforces fresh worktree + memory snapshot per trial   # proposed (report §9)
+    mechanism: harness enforces fresh worktree + memory snapshot per trial; managed-settings Read/Grep/Glob deny on evals/tasks/heldout/** and evals/graders/** for every agent session, plus sandbox read-deny for Bash (fallback - store heldout outside the repo; report §5)   # proposed (report §9)
   - id: G11
     name: Memory write provenance
-    enforces: outcome: worked is set only from a hook-verified task_outcome event
+    enforces: "outcome: worked is set only from a hook-verified task_outcome event"
     status: proposed
     enforced: false
     protected: true
-    mechanism: hook-verified task_outcome event is the only source for outcome: worked   # proposed (report §9)
+    mechanism: "hook-verified task_outcome event is the only source for outcome: worked"   # proposed (report §9)
   - id: G12
     name: Proposal scope
     enforces: the proposer writes only to proposals/inbox/; each proposal touches one surface and no path in PROTECTED.paths; G1-G8 blocks stay byte-identical; changes to hooks/ or PROTECTED.paths come only from a human

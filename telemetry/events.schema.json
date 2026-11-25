@@ -13,7 +13,7 @@
       "type": "string"
     },
     "event": {
-      "description": "Event name (baseline field); v1 adds task_outcome and memory_stat (report §7).",
+      "description": "Event name (baseline field); v1 adds task_outcome (see $defs.task_outcome) and memory_stat (report §7).",
       "type": "string"
     },
     "agent": {
@@ -27,6 +27,14 @@
     "task_id": {
       "description": "Task identifier (baseline field); M1, M5 (report §7).",
       "type": "string"
+    },
+    "outcome": {
+      "description": "Terminal task state on a task_outcome event: DONE or STUCK (report §3 step 5, §4 write-path hardening, G11).",
+      "enum": [
+        "DONE",
+        "STUCK"
+      ],
+      "x-emitted-today": false
     },
     "status": {
       "description": "Report STATUS (baseline field); M1 (report §7).",
@@ -64,6 +72,11 @@
     "blocked": {
       "description": "True when the guardrail blocked the action (ADR-0001 adds blocked: true events); M9 (report §7).",
       "type": "boolean",
+      "x-emitted-today": false
+    },
+    "case_id": {
+      "description": "Seeded-violation case id on a guardrail_hit event during Experiment X1; a case counts as blocked only if a blocked: true event with this guardrail and case_id was logged (report §8 X1, ADR-0001).",
+      "type": "string",
       "x-emitted-today": false
     },
     "rule_version": {
@@ -118,7 +131,62 @@
       "description": "Git tag of the installed config (rsi-v<n>); M17 (report §5 rollout, §7; ADR-0005). Also an OTel resource attribute.",
       "type": "string",
       "x-emitted-today": false
+    },
+    "seq": {
+      "description": "Per-log monotonically increasing sequence number; a gap signals a missing event (G13; report §6 R14, §9).",
+      "type": "integer",
+      "minimum": 0,
+      "x-emitted-today": false
+    },
+    "prev_hash": {
+      "description": "Hash of the previous event line, forming an append-only hash chain; a break signals tampering (G13; report §6 R14, §9).",
+      "type": "string",
+      "x-emitted-today": false
     }
   },
+  "$defs": {
+    "task_outcome": {
+      "description": "task_outcome event, emitted once per task end by a hook (not by the Worker). The only source G11 accepts for setting a memory entry's outcome: worked (report §3 step 5, §4 write-path hardening, §7 M1/M5, §9 G11).",
+      "type": "object",
+      "required": [
+        "task_id",
+        "outcome",
+        "verified_by_hook",
+        "verification"
+      ],
+      "properties": {
+        "event": {
+          "const": "task_outcome"
+        },
+        "verified_by_hook": {
+          "const": true
+        },
+        "verification": {
+          "type": "object",
+          "required": [
+            "exit_code"
+          ]
+        }
+      },
+      "x-emitted-today": false
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "task_outcome"
+          }
+        },
+        "required": [
+          "event"
+        ]
+      },
+      "then": {
+        "$ref": "#/$defs/task_outcome"
+      }
+    }
+  ],
   "additionalProperties": true
 }
