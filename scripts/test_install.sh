@@ -91,4 +91,17 @@ out="$(bash "$INSTALL" --apply --migrate-memory --source "$S" --target "$T4" 2>&
 [ "$(cat "$S/memory/advisor/MEMORY.md")" = "$repo_idx" ] && [ "$(cat "$T4/agent-memory/advisor/MEMORY.md")" = "REAL-INDEX" ] && [ ! -L "$T4/agent-memory/advisor" ] && check ok "migrate conflict: no overwrite, no move" || check no "migrate conflict: no overwrite, no move"
 echo "$out" | grep -qi "conflict" && echo "$out" | grep -q "MEMORY.md" && check ok "migrate conflict reported" || check no "migrate conflict reported"
 
+# (j) tracked, unmodified stub MEMORY.md is replaceable; once edited it is a conflict
+rm -rf "$T4" "$S"; mkdir -p "$T4/agent-memory/advisor" "$S/memory"
+cp -R "$ROOT/agents" "$ROOT/skills" "$S/"; cp -R "$ROOT/memory/advisor" "$S/memory/advisor"
+( cd "$S" && git init -q && git add -A && git -c user.name=t -c user.email=t@t commit -qm stub )
+echo "REAL-INDEX" > "$T4/agent-memory/advisor/MEMORY.md"
+bash "$INSTALL" --apply --migrate-memory --source "$S" --target "$T4" >/dev/null 2>&1
+[ "$(cat "$S/memory/advisor/MEMORY.md")" = "REAL-INDEX" ] && [ -L "$T4/agent-memory/advisor" ] && check ok "migrate replaces unmodified tracked stub" || check no "migrate replaces unmodified tracked stub"
+rm -rf "$T4"; mkdir -p "$T4/agent-memory/advisor"; echo "OTHER" > "$T4/agent-memory/advisor/MEMORY.md"
+echo "EDITED" > "$S/memory/advisor/MEMORY.md"
+out="$(bash "$INSTALL" --apply --migrate-memory --source "$S" --target "$T4" 2>&1)"
+[ "$(cat "$S/memory/advisor/MEMORY.md")" = "EDITED" ] && [ ! -L "$T4/agent-memory/advisor" ] && echo "$out" | grep -qi conflict && check ok "migrate refuses when repo MEMORY.md edited" || check no "migrate refuses when repo MEMORY.md edited"
+
+
 [ "$FAILS" -eq 0 ] && { echo "ALL PASS"; exit 0; } || { echo "$FAILS FAILED"; exit 1; }

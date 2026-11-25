@@ -68,6 +68,12 @@ link() {
   fi
 }
 
+# True when the repo file is tracked and identical to HEAD, i.e. an untouched stub that is safe to replace.
+is_pristine_stub() {
+  git -C "$ROOT" ls-files --error-unmatch -- "$1" >/dev/null 2>&1 \
+    && git -C "$ROOT" diff --quiet HEAD -- "$1" 2>/dev/null
+}
+
 # Advisor memory: never move a non-empty real memory folder aside unless --migrate-memory is given.
 link_memory() {
   local src="$ROOT/memory/advisor" dest="$TARGET/agent-memory/advisor" rel f
@@ -84,7 +90,7 @@ link_memory() {
     return
   fi
   while IFS= read -r f; do
-    if [ -e "$src/$f" ] && ! cmp -s "$dest/$f" "$src/$f"; then
+    if [ -e "$src/$f" ] && ! cmp -s "$dest/$f" "$src/$f" && ! is_pristine_stub "$src/$f"; then
       conflicts+=("$f")
     fi
   done < <(cd "$dest" && find . -type f | sed 's|^\./||' | sort)
@@ -96,11 +102,11 @@ link_memory() {
     return
   fi
   while IFS= read -r f; do
-    if [ -e "$src/$f" ]; then
+    if [ -e "$src/$f" ] && cmp -s "$dest/$f" "$src/$f"; then
       echo "same   $rel/$f (identical in repo)"
       continue
     fi
-    echo "copy   $rel/$f -> $src/$f"
+    echo "copy   $rel/$f -> $src/$f$([ -e "$src/$f" ] && echo ' (replaces unmodified repo stub; recoverable via git)')"
     if [ "$APPLY" -eq 1 ]; then
       mkdir -p "$(dirname "$src/$f")"
       cp -p "$dest/$f" "$src/$f"
