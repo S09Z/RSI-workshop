@@ -12,3 +12,5 @@ As described by its owner: memory in `~/.claude/agent-memory/advisor/` (`memory:
 Write and Edit are granted only for writing inside its memory folder; guardrail G6 restricts them to that folder.
 It returns ADVISOR GUIDANCE with
 DIAGNOSIS, CONFIDENCE, EVIDENCE (file:line), PLAN, HOW_TO_VERIFY, FROM_MEMORY.
+
+Guardrails G1–G8 are specified in hooks/guardrails.yaml; their enforcement hooks are not yet written, so nothing in this repo enforces them today.
