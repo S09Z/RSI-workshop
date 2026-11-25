@@ -108,12 +108,19 @@ for f in sorted((ROOT / "agents").glob("*.md")):
     if not m:
         fail(f"{rel}: no frontmatter")
         continue
-    fm, body = m.groups()
-    for key in ("name", "model"):
-        if not re.search(rf"^{key}:\s*\S", fm, re.M):
-            fail(f"{rel}: frontmatter missing {key}")
-    if "placeholder" not in body.lower():
-        fail(f"{rel}: body lacks 'placeholder'")
+    fm, _body = m.groups()
+    fields = {}
+    for line in fm.splitlines():
+        km = re.match(r"([A-Za-z_]+):\s*(.*?)\s*$", line)
+        if km:
+            fields[km.group(1)] = km.group(2)
+    for key in ("name", "model", "description", "tools"):
+        if not fields.get(key):
+            fail(f"{rel}: frontmatter missing or empty {key}")
+    if f.name == "orchestrator.md" and "Agent(worker, advisor)" not in fields.get("tools", ""):
+        fail(f"{rel}: tools lacks Agent(worker, advisor)")
+    if f.name == "advisor.md" and fields.get("memory") != "user":
+        fail(f"{rel}: advisor lacks memory: user")
 
 if fails:
     print("\n".join(fails))
