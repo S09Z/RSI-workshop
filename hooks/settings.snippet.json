@@ -4,10 +4,16 @@
       { "matcher": "Write|Edit|NotebookEdit|MultiEdit",
         "hooks": [
           { "type": "command", "command": "python3 -I \"$HOME/.claude/hooks/g2_orchestrator_nowrite.py\"" },
+          { "type": "command", "command": "python3 -I \"$HOME/.claude/hooks/g6_advisor_memory.py\"" },
+          { "type": "command", "command": "python3 -I \"$HOME/.claude/hooks/g7_worker_gitroot.py\"" },
           { "type": "command", "command": "python3 -I \"$HOME/.claude/hooks/g8_worker_tests.py\"" }
         ] },
       { "matcher": "Bash",
-        "hooks": [ { "type": "command", "command": "python3 -I \"$HOME/.claude/hooks/g8_worker_tests.py\"" } ] },
+        "hooks": [
+          { "type": "command", "command": "python3 -I \"$HOME/.claude/hooks/g6_advisor_memory.py\"" },
+          { "type": "command", "command": "python3 -I \"$HOME/.claude/hooks/g7_worker_gitroot.py\"" },
+          { "type": "command", "command": "python3 -I \"$HOME/.claude/hooks/g8_worker_tests.py\"" }
+        ] },
       { "matcher": "Agent",
         "hooks": [ { "type": "command", "command": "python3 -I \"$HOME/.claude/hooks/g8_capture.py\"" } ] }
     ],

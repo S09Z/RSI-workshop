@@ -24,9 +24,9 @@ Source: `headless-dashboard/claude-home/` (owner's folder, committed in `db036c2
 - Content-free by default: report text is parsed into fields and dropped unless `AGENT_DASHBOARD_LOG_CONTENT=1` (`log_event.py:7-9`).
 - `install.sh` edits `~/.claude/settings.json` (merges hook entries, writes a `.bak-<ts>` copy; `install.sh:35-64`) and writes into `~/.claude` and `~/.local/bin` (`install.sh:28-32`). This repo's `scripts/install.sh` never edits `settings.json`.
 
-## Status after Harden (G1, G2, G8)
+## Status after Harden (G1, G2, G6, G7, G8)
 
-The facts above describe the owner's baseline. This repo now also holds blocking hooks for G1, G2 and G8 (`hooks/g*.py`, tests in `hooks/tests/`, observed input shapes in `hooks/tests/fixtures/PROBE.md`). They are not registered in `~/.claude/settings.json`, so the live system is unchanged: every registered hook is still the async logger. Open question Q-p (who builds Harden): a human-directed agent session built these with human review of each diff, and nothing was registered, so no live configuration changed.
+The facts above describe the owner's baseline. This repo now also holds blocking hooks for G1, G2, G6, G7 and G8 (`hooks/g*.py`, tests in `hooks/tests/`, observed input shapes in `hooks/tests/fixtures/PROBE.md`). They are not registered in `~/.claude/settings.json`, so the live system is unchanged: every registered hook is still the async logger. Open question Q-p (who builds Harden): a human-directed agent session built these with human review of each diff, and nothing was registered, so no live configuration changed.
 
 ## Single source of truth and the two installers
 

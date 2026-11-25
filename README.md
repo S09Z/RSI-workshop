@@ -12,7 +12,7 @@ research report on making that system improve itself under human approval and an
 - **Proposed, not adopted.** Artifacts derived from the report need human approval: memory schema v2
   (`memory/advisor/SCHEMA.md`), telemetry v1 (`telemetry/events.schema.json`), the guardrail
   `proposed_mechanism` fields and G9-G14 (`hooks/guardrails.yaml`), and ADR-0001 to ADR-0005 (`docs/adr/`).
-- **Implemented, not enforced.** Blocking hooks for G1, G2 and G8 exist in `hooks/` with tests (`hooks/tests/run_x1.py`: X1 hook layer, 32/32 blocked, 0/12 false blocks). They are not registered in `~/.claude/settings.json` (`hooks/settings.snippet.json` is an unapplied example), so nothing is enforced yet. G3–G7 have no code.
+- **Implemented, not enforced.** Blocking hooks for G1, G2, G6, G7 and G8 exist in `hooks/` with tests (`hooks/tests/run_x1.py`: X1 hook layer, 44/44 blocked, 0/17 false blocks). They are not registered in `~/.claude/settings.json` (`hooks/settings.snippet.json` is an unapplied example), so nothing is enforced yet. G3, G4 and G5 have no code.
 
 ## Layout
 
@@ -21,7 +21,7 @@ research report on making that system improve itself under human approval and an
 | `agents/` | 1 prompts / agent definitions | owner's baseline agents (PROTECTED; live config after install) |
 | `memory/advisor/` | 2 advisor memory | index and schema v2 (proposed); `projects/`, `topics/` contents gitignored |
 | `skills/` | 3 skills and checklists | empty (PROTECTED; live config after install) |
-| `hooks/` | 4 guardrails (PROTECTED) | `guardrails.yaml` spec; blocking hooks for G1, G2, G8 (implemented, not registered) |
+| `hooks/` | 4 guardrails (PROTECTED) | `guardrails.yaml` spec; blocking hooks for G1, G2, G6, G7, G8 (implemented, not registered) |
 | `routing/` | 5 routing | models, retry and escalation limits (PROTECTED) |
 | `evals/` | eval gate | task format, configs, graders (PROTECTED), held-out tasks (PROTECTED) |
 | `proposals/` | change proposals | template, inbox, accepted (PROTECTED), rejected |

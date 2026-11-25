@@ -2,7 +2,7 @@
 # status: active | proposed. G1-G8 are never removed or weakened.
 # status: active = adopted in the design; enforced = a blocking hook exists.
 # implemented = blocking hook code exists and passes the X1 hook layer (hooks/tests/run_x1.py); enforced = registered
-# in settings.json and the X1 live layer passed. G1, G2, G8 are implemented, not yet enforced.
+# in settings.json and the X1 live layer passed. G1, G2, G6, G7, G8 are implemented, not yet enforced.
 # enforced: false for every guardrail today (docs/baseline.md: all hooks are async loggers).
 # proposed_mechanism fields and G9-G14 are proposed (report §9) and need human approval.
 # Any future G1-G8 byte-identity check (G12) must baseline against commit 826985b or later:
@@ -58,6 +58,9 @@ guardrails:
     enforced: false
     protected: true
     proposed_mechanism: PreToolUse path check + sandbox write scope; compare resolved real paths, since ~/.claude/agent-memory/advisor/ and the repo's memory/advisor/ are aliases via install.sh symlinks   # proposed (report §9)
+    hook: [hooks/g6_advisor_memory.py]
+    implemented: true
+    residual: Bash analysis is lexical (a path built at run time by a script, base64 or another interpreter is not seen); write-capable MCP tools are not covered; needs sandbox write scope
   - id: G7
     name: Worker may write only inside the git root
     enforces: Worker writes stay inside the git root
@@ -65,6 +68,9 @@ guardrails:
     enforced: false
     protected: true
     proposed_mechanism: PreToolUse path check + sandbox   # proposed (report §9)
+    hook: [hooks/g7_worker_gitroot.py]
+    implemented: true
+    residual: Bash analysis is lexical (a path built at run time by a script, base64 or another interpreter is not seen); a symlink created inside the repo after the check cannot be pre-empted; write-capable MCP tools are not covered; needs sandbox write scope
   - id: G8
     name: Worker may not edit the test files named in DONE_WHEN
     enforces: the acceptance test cannot be changed by the Worker
