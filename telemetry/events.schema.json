@@ -1,16 +1,124 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "events.jsonl event (v0, v2 pending report §4/§5/§7)",
+  "title": "events.jsonl event (v1, proposed — report §7, ADR-0005)",
+  "description": "v1 adds the fields the §7 metrics need. Fields marked x-emitted-today: false are not emitted by the owner's log_event.py (docs/baseline.md); the logger change is in the owner's code. This file is PROTECTED once added to PROTECTED.paths (report §9).",
   "type": "object",
-  "required": ["ts", "event"],
+  "required": [
+    "ts",
+    "event"
+  ],
   "properties": {
-    "ts": {"type": "string"},
-    "event": {"type": "string"},
-    "agent": {"enum": ["orchestrator", "worker", "advisor"]},
-    "task_id": {"type": "string"},
-    "status": {"type": "string"},
-    "attempt": {"type": "integer"},
-    "cost_usd": {"type": "number"}
+    "ts": {
+      "description": "Event timestamp (baseline field).",
+      "type": "string"
+    },
+    "event": {
+      "description": "Event name (baseline field); v1 adds task_outcome and memory_stat (report §7).",
+      "type": "string"
+    },
+    "agent": {
+      "description": "Emitting agent (baseline field).",
+      "enum": [
+        "orchestrator",
+        "worker",
+        "advisor"
+      ]
+    },
+    "task_id": {
+      "description": "Task identifier (baseline field); M1, M5 (report §7).",
+      "type": "string"
+    },
+    "status": {
+      "description": "Report STATUS (baseline field); M1 (report §7).",
+      "type": "string"
+    },
+    "attempt": {
+      "description": "Attempt number (baseline field); M1 (report §7).",
+      "type": "integer"
+    },
+    "cost_usd": {
+      "description": "Cost in USD (baseline hook field); OTel is primary for cost, M7 (report §7).",
+      "type": "number"
+    },
+    "verification": {
+      "description": "Hook-run verification of DONE_WHEN (report §7 M1; ADR-0005).",
+      "type": "object",
+      "properties": {
+        "exit_code": {
+          "type": "integer",
+          "description": "Exit code of the hook re-run of DONE_WHEN; M1, M2 (report §7, G3)."
+        }
+      },
+      "x-emitted-today": false
+    },
+    "verified_by_hook": {
+      "description": "True when the hook, not the Worker's self-report, re-ran DONE_WHEN; M1, M2, M5 (report §7, G11).",
+      "type": "boolean",
+      "x-emitted-today": false
+    },
+    "guardrail": {
+      "description": "Guardrail id such as G3 on a guardrail_hit event; M9 (report §7).",
+      "type": "string",
+      "x-emitted-today": false
+    },
+    "blocked": {
+      "description": "True when the guardrail blocked the action (ADR-0001 adds blocked: true events); M9 (report §7).",
+      "type": "boolean",
+      "x-emitted-today": false
+    },
+    "rule_version": {
+      "description": "Version of the guardrail rule that fired; M9 (report §7).",
+      "type": "string",
+      "x-emitted-today": false
+    },
+    "tool_input": {
+      "description": "Subset of tool_input logged for Edit/Write/Bash; M11 (report §7). Not logged by the owner's hook today.",
+      "type": "object",
+      "properties": {
+        "file_path": {
+          "type": "string",
+          "description": "Path touched by an Edit/Write call; M11 (report §7)."
+        }
+      },
+      "x-emitted-today": false
+    },
+    "bash_command_hash": {
+      "description": "Hash of a Bash command, used instead of raw text for privacy; M11 (report §7).",
+      "type": "string",
+      "x-emitted-today": false
+    },
+    "from_memory_ids": {
+      "description": "Memory entry ids the Advisor reused (today only hit/none is parsed); M13 (report §7, §4).",
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "x-emitted-today": false
+    },
+    "memory_stat": {
+      "description": "Daily memory index stats for the memory_stat event; M12 (report §7).",
+      "type": "object",
+      "properties": {
+        "lines": {
+          "type": "integer"
+        },
+        "bytes": {
+          "type": "integer"
+        },
+        "entries": {
+          "type": "integer"
+        },
+        "superseded": {
+          "type": "integer"
+        }
+      },
+      "x-emitted-today": false
+    },
+    "config_version": {
+      "description": "Git tag of the installed config (rsi-v<n>); M17 (report §5 rollout, §7; ADR-0005). Also an OTel resource attribute.",
+      "type": "string",
+      "x-emitted-today": false
+    }
   },
   "additionalProperties": true
 }

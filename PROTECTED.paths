@@ -4,3 +4,7 @@ evals/graders/
 evals/tasks/heldout/
 PROTECTED.paths
 scripts/install.sh
+# Proposed additions (report §9); G9 input
+evals/configs/
+proposals/accepted/
+telemetry/events.schema.json

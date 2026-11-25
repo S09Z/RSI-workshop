@@ -93,6 +93,8 @@ for n in range(1, 9):
         if not entries[gid].get("name"):
             fail(f"guardrails.yaml {gid} has empty name")
 for gid, e in entries.items():
+    if e.get("enforced") not in ("true", "false"):
+        fail(f"guardrails.yaml {gid} enforced must be true or false")
     if int(gid[1:]) >= 9 and e.get("status") != "proposed":
         fail(f"guardrails.yaml {gid} status is not proposed")
 

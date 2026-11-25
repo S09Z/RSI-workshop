@@ -1,43 +1,104 @@
 # Guardrail spec as described by the system's owner. Spec only: no hook code exists.
 # status: active | proposed. G1-G8 are never removed or weakened.
+# status: active = adopted in the design; enforced = a blocking hook exists.
+# enforced: false for every guardrail today (docs/baseline.md: all hooks are async loggers).
+# proposed_mechanism fields and G9-G14 are proposed (report §9) and need human approval.
 guardrails:
   - id: G1
     name: report contract check
     enforces: WORKER REPORT and ADVISOR GUIDANCE match their required fields
     status: active
+    enforced: false
     protected: true
+    proposed_mechanism: SubagentStop hook validates fields   # proposed (report §9)
   - id: G2
     name: Orchestrator may not write files
     enforces: the Orchestrator makes no file edits
     status: active
+    enforced: false
     protected: true
+    proposed_mechanism: PreToolUse deny on Write/Edit for orchestrator agent_type; Bash via sandbox   # proposed (report §9)
   - id: G3
     name: silent-failure detection
     enforces: failures that report success are caught
     status: active
+    enforced: false
     protected: true
+    proposed_mechanism: SubagentStop re-runs DONE_WHEN; WORKS + fail -> block   # proposed (report §9)
   - id: G4
     name: fresh evidence required
     enforces: VERIFICATION carries a command, result and ran_at from this run
     status: active
+    enforced: false
     protected: true
+    proposed_mechanism: SubagentStop checks ran_at within run   # proposed (report §9)
   - id: G5
     name: test-first acceptance gate
     enforces: the DONE_WHEN test must fail before the Worker starts
     status: active
+    enforced: false
     protected: true
+    proposed_mechanism: hook runs DONE_WHEN before first Worker dispatch; must fail   # proposed (report §9)
   - id: G6
     name: Advisor may write only to its memory folder
     enforces: Advisor Write and Edit calls are allowed only inside its memory folder (~/.claude/agent-memory/advisor/)
     status: active
+    enforced: false
     protected: true
+    proposed_mechanism: PreToolUse path check + sandbox write scope   # proposed (report §9)
   - id: G7
     name: Worker may write only inside the git root
     enforces: Worker writes stay inside the git root
     status: active
+    enforced: false
     protected: true
+    proposed_mechanism: PreToolUse path check + sandbox   # proposed (report §9)
   - id: G8
     name: Worker may not edit the test files named in DONE_WHEN
     enforces: the acceptance test cannot be changed by the Worker
     status: active
+    enforced: false
     protected: true
+    proposed_mechanism: PreToolUse path check on Edit/Write/Bash   # proposed (report §9)
+  - id: G9
+    name: No agent writes PROTECTED.paths
+    enforces: no agent may write any path listed in PROTECTED.paths
+    status: proposed
+    enforced: false
+    protected: true
+    mechanism: PreToolUse path check for all agents; sandbox deny   # proposed (report §9)
+  - id: G10
+    name: Eval isolation
+    enforces: each eval trial runs in a fresh worktree with a memory snapshot; heldout is unreadable outside the harness
+    status: proposed
+    enforced: false
+    protected: true
+    mechanism: harness enforces fresh worktree + memory snapshot per trial   # proposed (report §9)
+  - id: G11
+    name: Memory write provenance
+    enforces: outcome: worked is set only from a hook-verified task_outcome event
+    status: proposed
+    enforced: false
+    protected: true
+    mechanism: hook-verified task_outcome event is the only source for outcome: worked   # proposed (report §9)
+  - id: G12
+    name: Proposal scope
+    enforces: the proposer writes only to proposals/inbox/; each proposal touches one surface and no path in PROTECTED.paths; G1-G8 blocks stay byte-identical; changes to hooks/ or PROTECTED.paths come only from a human
+    status: proposed
+    enforced: false
+    protected: true
+    mechanism: scripts/check_proposal.py plus PreToolUse path check on the proposer   # proposed (report §9)
+  - id: G13
+    name: Audit-log integrity
+    enforces: events are append-only and hash-chained; the logger lives outside agent-writable paths
+    status: proposed
+    enforced: false
+    protected: true
+    mechanism: hash-chained events; logger outside agent-writable paths   # proposed (report §9)
+  - id: G14
+    name: Test-tamper heuristics
+    enforces: Worker diffs are flagged for skip markers, sys.exit, and conftest/operator patches
+    status: proposed
+    enforced: false
+    protected: true
+    mechanism: diff heuristics on Worker diffs   # proposed (report §9)
