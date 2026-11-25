@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# Run the orchestrator non-interactively and record run_start / run_result for the dashboard.
+#   orch-headless "Fix the failing checkout tests" [extra claude args]
+# The prompt text is NOT logged (only its length) unless AGENT_DASHBOARD_LOG_CONTENT=1.
+set -euo pipefail
+
+PROMPT="${1:?usage: orch-headless \"<task>\" [extra claude args]}"
+shift || true
+LOG_DIR="${AGENT_DASHBOARD_DIR:-$HOME/.claude/agent-dashboard}"
+mkdir -p "$LOG_DIR"
+OUT="$(mktemp)"
+trap 'rm -f "$OUT"' EXIT
+export AGENT_WORKFLOW=1
+# shellcheck source=/dev/null
+[ -f "$LOG_DIR/otel-env.sh" ] && . "$LOG_DIR/otel-env.sh"
+PROJECT="$(basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")"
+RUN_ID="run-$(date +%s)-$$"
+export AGENT_RUN_ID="$RUN_ID"
+export OTEL_RESOURCE_ATTRIBUTES="${OTEL_RESOURCE_ATTRIBUTES:+$OTEL_RESOURCE_ATTRIBUTES,}agent.run_id=$RUN_ID"
+
+record() {  # record <phase> [claude-json-file] [exit-code]; never fails the run
+  python3 - "$1" "${2:-}" "${3:-0}" "$LOG_DIR/events.jsonl" "$PROMPT" "$PROJECT" "$RUN_ID" <<'PY' || true
+import json, os, sys, time
+phase, out, code, log, prompt, project, run_id = sys.argv[1:8]
+code = int(code)
+ev = {"v": 2, "ts": time.time(), "project": project, "run_id": run_id, "prompt_len": len(prompt)}
+if os.environ.get("AGENT_DASHBOARD_LOG_CONTENT") == "1":
+    ev["prompt"] = prompt[:200]
+r = {}
+if phase == "start":
+    ev["event"] = "run_start"
+else:
+    try:
+        r = json.load(open(out, encoding="utf-8"))
+    except Exception:
+        r = {}
+    ev.update({"event": "run_result", "session_id": r.get("session_id"), "exit_code": code,
+               "is_error": r.get("is_error", code != 0), "cost_usd": r.get("total_cost_usd"),
+               "duration_ms": r.get("duration_ms"), "num_turns": r.get("num_turns"), "usage": r.get("usage")})
+with open(log, "a", encoding="utf-8") as f:
+    f.write(json.dumps(ev, ensure_ascii=False) + "\n")
+if phase != "start":
+    print(r.get("result", ""))
+PY
+}
+
+record start
+set +e
+claude -p "$PROMPT" --agent orchestrator --output-format json "$@" > "$OUT"
+CODE=$?
+set -e
+record result "$OUT" "$CODE"
+exit $CODE

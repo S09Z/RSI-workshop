@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- macOS: alert timer, every 5 minutes. install.sh --with-services fills in __HOME__.
+     Manual: launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.agentdash.tick.plist -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.agentdash.tick</string>
+  <key>ProgramArguments</key>
+  <array><string>/bin/bash</string><string>__HOME__/.local/bin/orch-dashboard-tick</string></array>
+  <key>StartInterval</key><integer>300</integer>
+  <key>RunAtLoad</key><true/>
+  <key>LowPriorityIO</key><true/>
+  <key>Nice</key><integer>10</integer>
+  <key>StandardErrorPath</key><string>__HOME__/.claude/agent-dashboard/tick.err</string>
+</dict>
+</plist>

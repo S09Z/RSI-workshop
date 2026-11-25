@@ -1,0 +1,4 @@
+# crontab -e   (any Unix; use this if you prefer cron over launchd/systemd)
+*/5 * * * * /bin/bash "$HOME/.local/bin/orch-dashboard-tick"
+# daily markdown report at 08:00 local time
+0 8 * * * PATH="$HOME/.local/bin:$PATH" orch-dashboard --report daily --out "$HOME/.claude/agent-dashboard/reports/daily-$(date +\%F).md"

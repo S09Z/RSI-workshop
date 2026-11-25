@@ -1,0 +1,11 @@
+# systemctl --user enable --now agentdash-tick.timer
+[Unit]
+Description=Run agentdash tick every 5 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

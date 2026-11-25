@@ -1,0 +1,25 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      { "matcher": "Task|Agent",
+        "hooks": [ { "type": "command", "command": "python3 \"$HOME/.claude/hooks/log_event.py\"", "async": true } ] }
+    ],
+    "PostToolUse": [
+      { "matcher": "*",
+        "hooks": [ { "type": "command", "command": "python3 \"$HOME/.claude/hooks/log_event.py\"", "async": true } ] }
+    ],
+    "PostToolUseFailure": [
+      { "matcher": "*",
+        "hooks": [ { "type": "command", "command": "python3 \"$HOME/.claude/hooks/log_event.py\"", "async": true } ] }
+    ],
+    "SubagentStart": [
+      { "hooks": [ { "type": "command", "command": "python3 \"$HOME/.claude/hooks/log_event.py\"", "async": true } ] }
+    ],
+    "SubagentStop": [
+      { "hooks": [ { "type": "command", "command": "python3 \"$HOME/.claude/hooks/log_event.py\"", "async": true } ] }
+    ],
+    "Stop": [
+      { "hooks": [ { "type": "command", "command": "python3 \"$HOME/.claude/hooks/log_event.py\"", "async": true } ] }
+    ]
+  }
+}
