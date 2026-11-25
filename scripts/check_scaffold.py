@@ -56,18 +56,9 @@ for line in prot:
     if not (ROOT / line).exists():
         fail(f"PROTECTED.paths line not on disk: {line}")
 
-# hooks/ has no executable scripts.
-# NOTE (Harden, ADR-0001): this rule must be relaxed in the Harden change, which creates hooks/g*.py.
-# Relax it then, not now: allow only scripts that hooks/guardrails.yaml references and that have tests.
-hooks = ROOT / "hooks"
-if hooks.is_dir():
-    for p in hooks.rglob("*"):
-        if p.is_file():
-            if os.access(p, os.X_OK):
-                fail(f"hooks/ file has exec bit: {p.relative_to(ROOT)}")
-            if p.suffix in {".sh", ".py", ".js"}:
-                fail(f"hooks/ script suffix not allowed: {p.relative_to(ROOT)}")
-
+# hooks/: no exec bit, no .sh/.js. A .py file is allowed only if it is a test or lib file, or is listed in a
+# guardrail's `hook:` in hooks/guardrails.yaml AND some file under hooks/tests/ mentions its name (ADR-0001).
+# (The guardrails.yaml parse below runs first; this block is checked after it.)
 # guardrails.yaml: line-based parse (no yaml dependency)
 g_text = read("hooks/guardrails.yaml")
 entries = {}
@@ -100,6 +91,40 @@ for gid, e in entries.items():
         fail(f"guardrails.yaml {gid} enforced must be true or false")
     if int(gid[1:]) >= 9 and e.get("status") != "proposed":
         fail(f"guardrails.yaml {gid} status is not proposed")
+
+# Harden: G1/G2/G8 are implemented (blocking hook code + tests) but not yet enforced (not registered).
+HARDEN = ("G1", "G2", "G8")
+listed_hooks = set()
+for gid, e in entries.items():
+    hv = e.get("hook", "").strip()
+    items = [x.strip().strip("'\"") for x in hv.strip("[]").split(",") if x.strip()] if hv else []
+    if gid in HARDEN:
+        if e.get("implemented") != "true":
+            fail(f"guardrails.yaml {gid} implemented must be true")
+        if e.get("enforced") != "false":
+            fail(f"guardrails.yaml {gid} enforced must stay false until registered and X1 live layer passes")
+        if not items:
+            fail(f"guardrails.yaml {gid} has no hook: list")
+    elif e.get("implemented") == "true":
+        fail(f"guardrails.yaml {gid} implemented true without a hook in this round")
+    listed_hooks.update(items)
+
+hooks = ROOT / "hooks"
+if hooks.is_dir():
+    test_text = "".join(t.read_text(encoding="utf-8") for t in (hooks / "tests").rglob("*.py")) if (hooks / "tests").is_dir() else ""
+    for p in hooks.rglob("*"):
+        if not p.is_file():
+            continue
+        rel = p.relative_to(ROOT).as_posix()
+        if os.access(p, os.X_OK):
+            fail(f"hooks/ file has exec bit: {rel}")
+        if p.suffix in {".sh", ".js"}:
+            fail(f"hooks/ script suffix not allowed: {rel}")
+        if p.suffix == ".py" and not rel.startswith(("hooks/lib/", "hooks/tests/")):
+            if rel not in listed_hooks:
+                fail(f"hooks/ script not listed in guardrails.yaml hook:: {rel}")
+            elif p.name not in test_text:
+                fail(f"hooks/ script has no test mentioning it: {rel}")
 
 # .gitignore
 if "evals/results/raw/" not in read(".gitignore").splitlines():

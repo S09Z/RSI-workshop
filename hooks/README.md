@@ -1,23 +1,53 @@
 # hooks/ (PROTECTED)
 
-RSI surface 4: guardrails. They exist here only as a spec, `guardrails.yaml`.
+RSI surface 4: guardrails. `guardrails.yaml` is the spec; this folder also holds the blocking hooks built in
+the Harden phase (ADR-0001) for **G1, G2 and G8**. G3-G7 have no code yet. Agents may not write here
+(see `../PROTECTED.paths`). G1-G8 are never removed or weakened; new guardrails (G9+) start as `status: proposed`.
 
-No hook scripts and no stubs are created. A stub that passes everything would give a false sense of
-protection. Real hook code arrives in a later step, after the report. Agents may not write here
-(see `../PROTECTED.paths`). G1-G8 are never removed or weakened; new guardrails (G9+) start as
-`status: proposed`.
+## Layout
 
-## Notes for the Harden change (ADR-0001)
+| Path | Hook event | Guardrail |
+|---|---|---|
+| `g1_report_contract.py` | SubagentStop | G1: Worker/Advisor report matches the contract |
+| `g2_orchestrator_nowrite.py` | PreToolUse Write/Edit/NotebookEdit/MultiEdit | G2: Orchestrator may not write files |
+| `g8_capture.py` | PreToolUse Agent (never blocks) | G8: records DONE_WHEN files from the dispatch prompt |
+| `g8_worker_tests.py` | PreToolUse Write/Edit/NotebookEdit/MultiEdit/Bash | G8: Worker may not edit DONE_WHEN tests |
+| `lib/common.py` | - | fail-closed wrapper, role detection, realpath, event log |
+| `settings.snippet.json` | - | example registration, **not applied** |
+| `tests/` | - | unit tests, X1 runner `run_x1.py`, fixtures (`fixtures/PROBE.md` = observed hook input) |
 
-- `scripts/check_scaffold.py` fails on any `.py`, `.sh` or `.js` file and any executable file in `hooks/`.
-  Harden creates `hooks/g*.py`, so that change must relax the rule: allow only scripts that
-  `guardrails.yaml` references and that have tests. Do not relax it before then.
-- Any future G1-G8 byte-identity check (G12) must baseline against commit `826985b` or later. G1-G8
-  gained the `proposed_mechanism` and `enforced` fields in that commit, so an older baseline would
-  flag them. G6's `proposed_mechanism` was extended again (resolved real paths) in the final-review
-  fix commit; baseline against the newest commit that changed a G1-G8 block
-  (`git log -- hooks/guardrails.yaml`).
-- After `scripts/install.sh`, the repo's files are the live `~/.claude` config through symlinks. Hook
-  path checks must compare resolved real paths (see `docs/architecture.md`, "Live surfaces").
-- Hooks are registered in `settings.json` by a proposed separate `scripts/install-hooks.sh` (human-run,
-  backs up `settings.json`); `scripts/install.sh` never touches `settings.json`.
+## Behaviour
+
+- Hooks are inert unless `AGENT_WORKFLOW=1` (set by the owner's `bin/orch`). If someone exports it globally,
+  plain sessions are governed too.
+- Blocking = exit code 2 (exit 1 does not block; observed in `fixtures/PROBE.md`). Any error inside a blocking
+  hook denies.
+- Every block logs a `guardrail_hit` event (`guardrail`, `blocked`, `case_id`, `rule_version`) to
+  `${AGENT_DASHBOARD_DIR:-~/.claude/agent-dashboard}/events.jsonl`; G8 state lives in
+  `${AGENT_HOOK_STATE_DIR:-~/.claude/agent-hook-state}`.
+- The Orchestrator must put `DONE_WHEN_FILES: <paths>` in every Worker dispatch (`agents/orchestrator.md`);
+  without it G8 falls back to blocking test-like paths.
+- Residual risk: Bash writes by the Orchestrator and indirect writes by scripts (needs sandbox).
+
+## Run the checks
+
+```bash
+python3 -I -W error -m unittest discover -s hooks/tests -p 'test_*.py'
+python3 -I hooks/tests/run_x1.py        # blocked 15/15, false_blocks 0/10
+python3 -I scripts/check_scaffold.py
+```
+
+## Not done
+
+- Registration in `settings.json` (no `install-hooks.sh` yet; the user chose not to register this round).
+- X1 live layer (real agent sessions); G3-G7; the Bash sandbox.
+- `ran_at` freshness is G4, not G1.
+
+## Notes for later work
+
+- `scripts/check_scaffold.py` allows `hooks/*.py` only when `guardrails.yaml` lists it under `hook:` and a test
+  mentions it.
+- Any future G1-G8 byte-identity check (G12) must baseline against the newest commit that changed a G1-G8 block
+  (`git log -- hooks/guardrails.yaml`); this round added `hook:`, `implemented:` and `residual:` fields.
+- After `scripts/install.sh`, the repo's files are the live `~/.claude` config through symlinks. Hook path checks
+  compare resolved real paths.
