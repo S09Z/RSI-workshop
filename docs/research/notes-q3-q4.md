@@ -84,7 +84,7 @@ MDE in percentage points, scenario A:
 | 30 | 25.6 | 19.4 | 17.9 | 16.7 |
 | 50 | 19.8 | 15.0 | 13.8 | 12.9 |
 
-Scenario B at N = 20: 40.8 (K=1), 28.1 (K=3), 24.8 (K=5), 22.0 (K=10); at N = 50: 25.8, 17.8, 15.7, 13.9.
+Scenario B at N = 20: 41.8 (K=1), 29.5 (K=3), 26.4 (K=5), 23.8 (K=10); at N = 50: 26.4, 18.7, 16.7, 15.1.
 
 Tasks needed to detect exactly +15 points: scenario A 87 (K=1), 50 (K=3), 43 (K=5), 37 (K=10); scenario B 155, 78, 62, about 50. Even with deterministic tasks (sigma^2 = 0, K irrelevant) scenario A needs N = 2.802^2 x 0.09 / 0.15^2 = about 31 tasks.
 
