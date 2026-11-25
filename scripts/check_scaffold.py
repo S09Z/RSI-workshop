@@ -6,6 +6,8 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+if len(sys.argv) == 3 and sys.argv[1] == "--root":
+    ROOT = Path(sys.argv[2]).resolve()
 
 REQUIRED_FILES = [
     "scripts/check_scaffold.py", ".gitignore", "README.md", "PROTECTED.paths",
@@ -77,6 +79,8 @@ for line in g_text.splitlines():
     m = re.match(r"\s*-\s*id:\s*(G\d+)\s*$", line)
     if m:
         cur = m.group(1)
+        if cur in entries:
+            fail(f"guardrails.yaml duplicate id: {cur}")
         entries[cur] = {}
         continue
     m = re.match(r"\s+(\w+):\s*(.*?)\s*$", line)
@@ -88,6 +92,11 @@ for n in range(1, 9):
         fail(f"guardrails.yaml missing {gid}")
     elif entries[gid].get("status") != "active":
         fail(f"guardrails.yaml {gid} status is not active")
+    if gid in entries:
+        if entries[gid].get("protected") != "true":
+            fail(f"guardrails.yaml {gid} protected is not true")
+        if not entries[gid].get("name"):
+            fail(f"guardrails.yaml {gid} has empty name")
 for gid, e in entries.items():
     if int(gid[1:]) >= 9 and e.get("status") != "proposed":
         fail(f"guardrails.yaml {gid} status is not proposed")
