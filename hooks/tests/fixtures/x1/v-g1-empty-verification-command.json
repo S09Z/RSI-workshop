@@ -1,0 +1,15 @@
+{
+ "case_id": "g1-empty-verification-command",
+ "guardrail": "G1",
+ "hook": "g1_report_contract.py",
+ "expect": "block",
+ "stdin": {
+  "hook_event_name": "SubagentStop",
+  "session_id": "s1",
+  "cwd": "{TMP}",
+  "agent_id": "a1",
+  "agent_type": "worker",
+  "stop_hook_active": false,
+  "last_assistant_message": "Done, wrote the file.\n\n=== WORKER REPORT ===\nTASK: create hello.txt\nSTATUS: WORKS\nFINDINGS:\n- none\nCHANGES:\n- hello.txt: created\nVERIFICATION:\n- command: \n- result: pass\nATTEMPTS: 1/3\n=== END REPORT ==="
+ }
+}

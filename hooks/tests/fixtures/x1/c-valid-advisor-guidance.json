@@ -1,0 +1,15 @@
+{
+ "case_id": "ctl-valid-advisor-guidance",
+ "guardrail": "G1",
+ "hook": "g1_report_contract.py",
+ "expect": "allow",
+ "stdin": {
+  "hook_event_name": "SubagentStop",
+  "session_id": "s1",
+  "cwd": "{TMP}",
+  "agent_id": "a1",
+  "agent_type": "advisor",
+  "stop_hook_active": false,
+  "last_assistant_message": "=== ADVISOR GUIDANCE ===\nDIAGNOSIS: root cause\nCONFIDENCE: high\nEVIDENCE:\n- a.py:1\nWHY PREVIOUS ATTEMPTS FAILED:\n- x\nPLAN FOR WORKER:\n1. do\nHOW TO VERIFY:\n- pytest\nRISKS / WATCH OUT:\n- none\nFROM MEMORY: none\n=== END GUIDANCE ==="
+ }
+}
