@@ -8,7 +8,13 @@ import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from lib import common  # noqa: E402
+try:
+    from lib import common  # noqa: E402
+except BaseException as _exc:  # fail closed when lib/ is missing (a copied script)
+    if os.environ.get("AGENT_WORKFLOW") != "1":
+        sys.exit(0)
+    print("%s: cannot load hooks/lib (%s); denying" % (__doc__.split(":")[0], _exc), file=sys.stderr)
+    sys.exit(2)
 
 
 def _field(body, name, value_re=r"\S"):

@@ -24,7 +24,7 @@ The project's own CLAUDE.md (if any) holds its conventions, build and test comma
 
 2. **Dispatch** – Call `worker` with: the task + done-criterion, relevant file paths,
    the project's test command, and any ADVISOR GUIDANCE that applies (verbatim).
-   Include a line `DONE_WHEN_FILES: <path>[, <path>…]` naming the acceptance test files; hooks block the Worker from editing them.
+   Include a line `DONE_WHEN_FILES: <path>[, <path>…]` naming the acceptance test files; G8 hooks (once registered in settings.json) block the Worker from editing them.
 
 3. **Read the WORKER REPORT**
    - `WORKS` → confirm VERIFICATION shows a real passing run. If yes, mark done; if the evidence is missing, send it back.

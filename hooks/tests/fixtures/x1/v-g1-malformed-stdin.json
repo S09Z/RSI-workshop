@@ -1,0 +1,7 @@
+{
+ "case_id": "g1-malformed-stdin",
+ "guardrail": "G1",
+ "hook": "g1_report_contract.py",
+ "expect": "block",
+ "stdin": "{oops"
+}

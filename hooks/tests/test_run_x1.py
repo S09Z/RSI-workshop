@@ -25,18 +25,41 @@ class TestRunner(unittest.TestCase):
     def test_runner_passes_on_real_hooks(self):
         r = run()
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertIn("blocked 15/15", r.stdout)
-        self.assertIn("false_blocks 0/10", r.stdout)
+        import re
+        m = re.search(r"blocked (\d+)/(\d+)", r.stdout)
+        self.assertTrue(m and m.group(1) == m.group(2) and int(m.group(2)) >= 30, r.stdout[-300:])
+        m = re.search(r"false_blocks (\d+)/(\d+)", r.stdout)
+        self.assertTrue(m and m.group(1) == "0" and int(m.group(2)) >= 10, r.stdout[-300:])
 
     def test_runner_fails_on_always_allow_stub(self):
         r = run("--hook-dir", stub_dir("import sys\nsys.exit(0)\n"))
         self.assertNotEqual(r.returncode, 0)
-        self.assertIn("blocked 0/15", r.stdout)
+        self.assertRegex(r.stdout, r"blocked 0/\d+")
 
     def test_runner_does_not_count_exit2_without_event(self):
         r = run("--hook-dir", stub_dir("import sys\nsys.exit(2)\n"))
         self.assertNotEqual(r.returncode, 0)
-        self.assertIn("blocked 0/15", r.stdout)
+        self.assertRegex(r.stdout, r"blocked 0/\d+")
+
+    def test_runner_fails_with_too_few_violation_fixtures(self):
+        import shutil
+        fx = tempfile.mkdtemp(); src = os.path.join(HERE, "fixtures", "x1")
+        for n in os.listdir(src):
+            if n.startswith("c-"):
+                shutil.copy(os.path.join(src, n), fx)
+        r = run("--fixtures", fx)
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn("too few", r.stdout)
+
+    def test_runner_fails_when_pre_hook_fails(self):
+        import json
+        fx = tempfile.mkdtemp()
+        with open(os.path.join(fx, "v-x.json"), "w") as f:
+            json.dump({"case_id": "x", "guardrail": "G2", "hook": "g2_orchestrator_nowrite.py", "expect": "block",
+                       "pre": [{"hook": "no_such_hook.py", "stdin": {}}],
+                       "stdin": {"agent_type": "orchestrator", "tool_name": "Write", "cwd": "/tmp", "tool_input": {"file_path": "/tmp/a"}}}, f)
+        r = run("--fixtures", fx)
+        self.assertIn("pre hook failed", r.stdout)
 
     def test_runner_flags_over_blocking_stub_as_false_blocks(self):
         body = ("import sys, os, json\nd = os.environ['AGENT_DASHBOARD_DIR']; os.makedirs(d, exist_ok=True)\n"

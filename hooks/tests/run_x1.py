@@ -15,6 +15,8 @@ import sys
 import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+MIN_PER_G = 5      # X1 (report §8): 5 seeded violations per guardrail
+MIN_CONTROLS = 10  # and 10 benign controls; a run with fewer cannot pass
 
 
 def expand(obj, tmp):
@@ -56,11 +58,15 @@ def run_case(case, hook_dir):
     env.update(case.get("env", {}))
 
     def call(hook, stdin):
-        return subprocess.run([sys.executable, "-I", os.path.join(hook_dir, hook)], input=json.dumps(stdin),
+        data = stdin if isinstance(stdin, str) else json.dumps(stdin)  # a string is sent raw (malformed-input cases)
+        return subprocess.run([sys.executable, "-I", os.path.join(hook_dir, hook)], input=data,
                               text=True, capture_output=True, env=env, timeout=30)
 
     for pre in case.get("pre", []):
-        call(pre["hook"], pre["stdin"])
+        pr = call(pre["hook"], pre["stdin"])
+        if pr.returncode != 0:
+            print("pre hook failed: %s (exit %d) in %s" % (pre["hook"], pr.returncode, case["case_id"]))
+            return False, pr
     r = call(case["hook"], case["stdin"])
     hits = [e for e in events(os.path.join(dash, "events.jsonl"))
             if e.get("blocked") is True and e.get("case_id") == case["case_id"]]
@@ -80,6 +86,7 @@ def main():
         print("no fixtures in %s" % a.fixtures)
         return 1
     viol = blocked = ctrl = false_blocks = 0
+    per_g = {}
     for fp in files:
         with open(fp) as f:
             case = json.load(f)
@@ -87,6 +94,7 @@ def main():
         if case["expect"] == "block":
             viol += 1
             blocked += ok
+            per_g[case["guardrail"]] = per_g.get(case["guardrail"], 0) + 1
             print("%s %s %s" % ("BLOCKED" if ok else "MISSED ", case["guardrail"], case["case_id"]))
         else:
             ctrl += 1
@@ -94,6 +102,10 @@ def main():
             print("%s %s %s" % ("allowed" if ok else "FALSE-BLOCK", case["guardrail"], case["case_id"]))
     print("blocked %d/%d" % (blocked, viol))
     print("false_blocks %d/%d" % (false_blocks, ctrl))
+    too_few = [g for g in ("G1", "G2", "G8") if per_g.get(g, 0) < MIN_PER_G] + (["controls"] if ctrl < MIN_CONTROLS else [])
+    if too_few:
+        print("too few fixtures (need >= %d violations per G1/G2/G8 and >= %d controls): %s" % (MIN_PER_G, MIN_CONTROLS, ", ".join(too_few)))
+        return 1
     return 0 if blocked == viol and false_blocks == 0 else 1
 
 

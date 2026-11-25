@@ -1,4 +1,7 @@
-"""G8 (part 1): record the DONE_WHEN test files of each Worker dispatch. PreToolUse on Agent; never blocks."""
+"""G8 (part 1): record the DONE_WHEN test files of each Worker dispatch. PreToolUse on Agent.
+
+Fails closed: if a Worker dispatch cannot be recorded the dispatch is denied (exit 2), because an unrecorded
+dispatch would leave its test files unprotected. Non-worker dispatches never touch the state dir."""
 import json
 import os
 import re
@@ -6,7 +9,13 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from lib import common  # noqa: E402
+try:
+    from lib import common  # noqa: E402
+except BaseException as _exc:  # fail closed when lib/ is missing (a copied script)
+    if os.environ.get("AGENT_WORKFLOW") != "1":
+        sys.exit(0)
+    print("%s: cannot load hooks/lib (%s); denying" % (__doc__.split(":")[0], _exc), file=sys.stderr)
+    sys.exit(2)
 
 EXT = (".py", ".js", ".ts", ".go", ".rs", ".sh")
 TTL = 24 * 3600
@@ -44,12 +53,15 @@ def main(event):
     now = time.time()
     for f in os.listdir(d):
         fp = os.path.join(d, f)
-        if now - os.path.getmtime(fp) > TTL:
-            os.remove(fp)
+        try:
+            if now - os.lstat(fp).st_mtime > TTL:
+                os.remove(fp)
+        except FileNotFoundError:
+            pass  # another capture pruned it first
     sid = re.sub(r"[^A-Za-z0-9_-]", "_", str(event.get("session_id") or "nosession"))
     with open(os.path.join(d, "%s-%d.json" % (sid, int(now * 1000))), "w") as f:
         json.dump({"files": files, "unknown": not files, "cwd": cwd}, f)
     return None
 
 
-common.run_hook(main, guardrail="G8", rule_version="g8-capture-v1", blocking=False)
+common.run_hook(main, guardrail="G8", rule_version="g8-capture-v1")

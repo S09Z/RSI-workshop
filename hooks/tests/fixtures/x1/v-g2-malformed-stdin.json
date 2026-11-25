@@ -1,0 +1,7 @@
+{
+ "case_id": "g2-malformed-stdin",
+ "guardrail": "G2",
+ "hook": "g2_orchestrator_nowrite.py",
+ "expect": "block",
+ "stdin": "{oops"
+}

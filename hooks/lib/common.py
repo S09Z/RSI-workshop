@@ -67,12 +67,9 @@ def run_hook(main: Callable[[dict], Optional[Decision]], *, guardrail: str, rule
         d = main(event)
     except SystemExit:
         raise
-    except Exception as exc:  # fail closed
-        try:
-            log_event(guardrail, blocking, "hook_error", rule_version,
-                      tool_name=event.get("tool_name") if isinstance(event, dict) else None)
-        except Exception:
-            pass
+    except BaseException as exc:  # fail closed, including KeyboardInterrupt
+        _best_effort_log(guardrail, blocking, "hook_error", rule_version,
+                         event.get("tool_name") if isinstance(event, dict) else None)
         if blocking:
             print("%s: hook error (%s: %s); denying" % (guardrail, type(exc).__name__, exc), file=sys.stderr)
             sys.exit(2)
@@ -81,8 +78,16 @@ def run_hook(main: Callable[[dict], Optional[Decision]], *, guardrail: str, rule
         sys.exit(0)
     if d.allow:
         if d.fields.get("log"):
-            log_event(d.guardrail, False, d.reason, rule_version, d.fields.get("tool_name"), d.fields.get("path"))
+            _best_effort_log(d.guardrail, False, d.reason, rule_version, d.fields.get("tool_name"), d.fields.get("path"))
         sys.exit(0)
-    log_event(d.guardrail, True, d.reason, rule_version, d.fields.get("tool_name"), d.fields.get("path"))
+    # A deny must never depend on the log: an unwritable log would otherwise exit 1, which does not block.
+    _best_effort_log(d.guardrail, True, d.reason, rule_version, d.fields.get("tool_name"), d.fields.get("path"))
     print(d.reason, file=sys.stderr)
     sys.exit(2)
+
+
+def _best_effort_log(*args):
+    try:
+        log_event(*args)
+    except BaseException:
+        pass

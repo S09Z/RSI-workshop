@@ -1,0 +1,15 @@
+{
+ "case_id": "ctl-valid-blocked-report",
+ "guardrail": "G1",
+ "hook": "g1_report_contract.py",
+ "expect": "allow",
+ "stdin": {
+  "hook_event_name": "SubagentStop",
+  "session_id": "s1",
+  "cwd": "{TMP}",
+  "agent_id": "a1",
+  "agent_type": "worker",
+  "stop_hook_active": false,
+  "last_assistant_message": "Done, wrote the file.\n\n=== WORKER REPORT ===\nTASK: create hello.txt\nSTATUS: BLOCKED\nFINDINGS:\n- none\nCHANGES:\n- hello.txt: created\nVERIFICATION:\n- command: test -f hello.txt\n- result: pass\nATTEMPTS: 1/3\nIF NOT WORKING:\n- hypotheses tried: a\n- current error: e\n- what I think is needed: unknown\n=== END REPORT ==="
+ }
+}

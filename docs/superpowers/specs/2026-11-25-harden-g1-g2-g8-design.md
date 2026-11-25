@@ -191,5 +191,9 @@ Exact allowlist contents, regexes for path tokens, fixture wording, internal fun
   and some file in `hooks/tests/` mentions its name.
 - `run_x1.py --hook-dir DIR` (default `hooks/`) points the runner at another directory, so the always-allow
   stub check runs the same cases against a stub dir; it must exit nonzero with 0/15 blocked.
+- Fix pass after the final review: `g8_capture.py` now fails closed (exit 2 when it cannot record a Worker
+  dispatch; non-worker dispatches never touch state); Bash analysis uses shell tokens, globs and option values;
+  Write/Edit compare case-folded paths and `samefile`; `run_x1.py` enforces minimum fixture counts. Supersedes
+  "never blocks" in §5 for the capture hook.
 - Fixtures set `AGENT_WORKFLOW=1`, `AGENT_DASHBOARD_DIR`, `AGENT_HOOK_STATE_DIR` and `AGENT_HOOK_CASE_ID`
   in the subprocess env; hooks read no other environment variable.

@@ -77,6 +77,45 @@ class TestRunHook(unittest.TestCase):
         self.assertEqual(e.events(), [])
 
 
+def _readonly_events(e):
+    os.makedirs(e.dash, exist_ok=True)
+    f = os.path.join(e.dash, "events.jsonl")
+    with open(f, "w") as fh:
+        fh.write("")
+    os.chmod(f, 0o444)
+
+
+class TestFailClosed(unittest.TestCase):
+    def test_deny_with_readonly_event_log_still_exits_2(self):
+        e = Env(); _readonly_events(e)
+        r = e.run(make_script(DENY), {"x": 1})
+        self.assertEqual(r.returncode, 2, r.stderr)
+
+    def test_real_hooks_deny_with_readonly_event_log(self):
+        cases = [("g2_orchestrator_nowrite.py", {"agent_type": "orchestrator", "tool_name": "Write", "cwd": "/tmp", "tool_input": {"file_path": "/tmp/a"}}),
+                 ("g1_report_contract.py", {"agent_id": "a", "agent_type": "worker", "last_assistant_message": "nope"})]
+        for script, ev in cases:
+            e = Env(); _readonly_events(e)
+            self.assertEqual(e.run(script, ev).returncode, 2, script)
+
+    def test_keyboardinterrupt_in_main_exits_2(self):
+        body = "def main(ev):\n    raise KeyboardInterrupt()\ncommon.run_hook(main, guardrail='G9', rule_version='t-v1')\n"
+        self.assertEqual(Env().run(make_script(body), {"x": 1}).returncode, 2)
+
+    def test_hook_copied_without_lib_exits_2_when_workflow_on(self):
+        import shutil
+        for name in ("g1_report_contract.py", "g2_orchestrator_nowrite.py", "g8_capture.py", "g8_worker_tests.py"):
+            d = tempfile.mkdtemp(); dst = os.path.join(d, name)
+            shutil.copy(os.path.join(HOOKS, name), dst)
+            self.assertEqual(Env().run(dst, {"x": 1}).returncode, 2, name)
+
+    def test_hook_copied_without_lib_is_inert_when_workflow_off(self):
+        import shutil
+        d = tempfile.mkdtemp(); dst = os.path.join(d, "g2_orchestrator_nowrite.py")
+        shutil.copy(os.path.join(HOOKS, "g2_orchestrator_nowrite.py"), dst)
+        self.assertEqual(Env(workflow=None).run(dst, {"x": 1}).returncode, 0)
+
+
 class TestHelpers(unittest.TestCase):
     def test_real_resolves_symlink_and_relative_with_cwd(self):
         d = os.path.realpath(tempfile.mkdtemp())

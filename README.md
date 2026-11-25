@@ -12,7 +12,7 @@ research report on making that system improve itself under human approval and an
 - **Proposed, not adopted.** Artifacts derived from the report need human approval: memory schema v2
   (`memory/advisor/SCHEMA.md`), telemetry v1 (`telemetry/events.schema.json`), the guardrail
   `proposed_mechanism` fields and G9-G14 (`hooks/guardrails.yaml`), and ADR-0001 to ADR-0005 (`docs/adr/`).
-- **Implemented, not enforced.** Blocking hooks for G1, G2 and G8 exist in `hooks/` with tests (`hooks/tests/run_x1.py`: X1 hook layer, 15/15 blocked, 0/10 false blocks). They are not registered in `~/.claude/settings.json` (`hooks/settings.snippet.json` is an unapplied example), so nothing is enforced yet. G3–G7 have no code.
+- **Implemented, not enforced.** Blocking hooks for G1, G2 and G8 exist in `hooks/` with tests (`hooks/tests/run_x1.py`: X1 hook layer, 32/32 blocked, 0/12 false blocks). They are not registered in `~/.claude/settings.json` (`hooks/settings.snippet.json` is an unapplied example), so nothing is enforced yet. G3–G7 have no code.
 
 ## Layout
 

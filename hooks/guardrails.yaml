@@ -29,7 +29,7 @@ guardrails:
     proposed_mechanism: PreToolUse deny on Write/Edit for orchestrator agent_type; Bash via sandbox   # proposed (report §9)
     hook: [hooks/g2_orchestrator_nowrite.py]
     implemented: true
-    residual: Bash writes by the Orchestrator (needs sandbox)
+    residual: Bash writes by the Orchestrator; write-capable MCP tools are not covered (needs sandbox and a tool allowlist)
   - id: G3
     name: silent-failure detection
     enforces: failures that report success are caught
@@ -74,7 +74,7 @@ guardrails:
     proposed_mechanism: PreToolUse path check on Edit/Write/Bash   # proposed (report §9)
     hook: [hooks/g8_capture.py, hooks/g8_worker_tests.py]
     implemented: true
-    residual: indirect writes by scripts or generated files, MCP tools (needs sandbox; report Q-e)
+    residual: Bash analysis is lexical (a path built at run time by a script, base64, or another interpreter is not seen); hook state and event log are agent-writable except for the names the hook denies (needs sandbox and G13); Worker may add conftest.py/pytest.ini that patch the test (G14); MCP write tools (report Q-e)
   - id: G9
     name: No agent writes PROTECTED.paths
     enforces: no agent may write any path listed in PROTECTED.paths
