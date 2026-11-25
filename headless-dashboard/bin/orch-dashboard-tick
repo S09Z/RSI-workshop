@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Timer entry point: ingest + rollup + alerts (+ retention once a day). Never interactive.
+# Webhook secrets are read from ~/.claude/agent-dashboard/alerts.env (chmod 600), e.g.
+#   AGENTDASH_SLACK_WEBHOOK=https://hooks.slack.com/services/...
+set -uo pipefail
+DIR="${AGENT_DASHBOARD_DIR:-$HOME/.claude/agent-dashboard}"
+if [ -f "$DIR/alerts.env" ]; then set -a; . "$DIR/alerts.env"; set +a; fi
+PATH="$HOME/.local/bin:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:$PATH"
+orch-dashboard --tick >>"$DIR/tick.log" 2>&1
+# keep the tick log small
+if [ -f "$DIR/tick.log" ] && [ "$(wc -c <"$DIR/tick.log")" -gt 5000000 ]; then
+  tail -c 1000000 "$DIR/tick.log" >"$DIR/tick.log.tmp" && mv "$DIR/tick.log.tmp" "$DIR/tick.log"
+fi

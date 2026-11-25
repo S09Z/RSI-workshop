@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Workflow Dashboard</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --ink: #14171c; --muted: #6b7280; --line: #e5e7eb;
+    --orch: #64748b; --worker: #2563eb; --advisor: #7c3aed;
+    --ok: #16a34a; --bad: #dc2626; --warn: #d97706; --run: #0284c7;
+    --ok-bg: #dcfce7; --bad-bg: #fee2e2; --warn-bg: #fef3c7; --run-bg: #e0f2fe; --adv-bg: #ede9fe; --mut-bg: #f1f5f9;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0e1116; --panel: #161b22; --ink: #e6e8eb; --muted: #8b949e; --line: #262c36;
+      --orch: #94a3b8; --worker: #60a5fa; --advisor: #a78bfa;
+      --ok: #4ade80; --bad: #f87171; --warn: #fbbf24; --run: #38bdf8;
+      --ok-bg: #12301d; --bad-bg: #3a1515; --warn-bg: #3a2a0c; --run-bg: #0c2a3a; --adv-bg: #251a40; --mut-bg: #1e242d;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans Thai", Roboto, sans-serif; }
+  .wrap { max-width: 1280px; margin: 0 auto; padding: 24px; }
+  header { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+  h1 { font-size: 20px; margin: 0; letter-spacing: -0.01em; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 28px 0 10px; font-weight: 600; }
+  .meta { color: var(--muted); font-size: 13px; display: flex; gap: 14px; align-items: center; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); display: inline-block; margin-right: 6px; }
+  .dot.stale { background: var(--bad); }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+  .kpi { padding: 14px 16px; }
+  .kpi .label { color: var(--muted); font-size: 12px; }
+  .kpi .val { font-size: 26px; font-weight: 650; letter-spacing: -0.02em; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .kpi .sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .kpi.hero { grid-column: span 2; }
+  @media (min-width: 760px) { #kpis-perf { grid-template-columns: repeat(4, 1fr); } }
+  .bar { height: 8px; border-radius: 4px; background: var(--mut-bg); overflow: hidden; display: flex; margin-top: 10px; }
+  .bar > span { display: block; height: 100%; }
+  .agents { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+  .agent { padding: 16px; border-top: 3px solid var(--c); }
+  .agent .top { display: flex; justify-content: space-between; align-items: center; }
+  .agent .name { font-weight: 650; font-size: 15px; text-transform: capitalize; }
+  .agent dl { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; margin: 14px 0 0; }
+  .agent dt { color: var(--muted); font-size: 12px; }
+  .agent dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+  .p-done, .p-WORKS { background: var(--ok-bg); color: var(--ok); }
+  .p-stuck, .p-DOES_NOT_WORK, .p-ERROR, .p-failing { background: var(--bad-bg); color: var(--bad); }
+  .p-BLOCKED, .p-retry_pending, .p-NO_REPORT { background: var(--warn-bg); color: var(--warn); }
+  .p-in_progress, .p-RUNNING, .p-busy { background: var(--run-bg); color: var(--run); }
+  .p-consulting, .p-GUIDANCE { background: var(--adv-bg); color: var(--advisor); }
+  .p-idle, .p-queued, .p-pending { background: var(--mut-bg); color: var(--muted); }
+  #timeline { padding: 12px 16px 8px; overflow-x: auto; }
+  #timeline svg text { fill: var(--muted); font-size: 11px; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  th { font-size: 12px; color: var(--muted); font-weight: 600; }
+  tr:last-child td { border-bottom: none; }
+  td.num { font-variant-numeric: tabular-nums; }
+  .chips { display: flex; gap: 3px; flex-wrap: wrap; }
+  .chip { width: 22px; height: 18px; border-radius: 4px; font-size: 10px; font-weight: 700; display: grid; place-items: center; }
+  .empty { padding: 28px; text-align: center; color: var(--muted); }
+  .legend { display: flex; gap: 14px; color: var(--muted); font-size: 12px; padding: 0 16px 12px; flex-wrap: wrap; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+  .title-cell { max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  code { font-size: 12px; background: var(--mut-bg); padding: 1px 5px; border-radius: 4px; }
+  .trends { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
+  .trend { padding: 12px 14px 8px; }
+  .trend .label { color: var(--muted); font-size: 12px; display: flex; justify-content: space-between; }
+  .trend .val { font-size: 18px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .trend svg text { fill: var(--muted); font-size: 10px; }
+  .gbars { padding: 14px 16px; display: grid; grid-template-columns: 34px 1fr 40px; gap: 6px 10px; align-items: center; font-size: 12px; }
+  .gbars .track { height: 10px; background: var(--mut-bg); border-radius: 4px; overflow: hidden; }
+  .gbars .fill { height: 100%; background: var(--worker); border-radius: 0 4px 4px 0; }
+  .gbars .crit .fill { background: var(--bad); }
+  .note { color: var(--muted); font-size: 12px; padding: 0 16px 12px; }
+  .warn-n { color: var(--warn); font-size: 11px; }
+  .banner { background: var(--warn-bg); color: var(--warn); border-radius: 8px; padding: 8px 12px; margin-bottom: 12px; font-size: 13px; display: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Agent Workflow — Orchestrator · Worker · Advisor <span style="color:var(--muted);font-weight:500;font-size:13px">v2</span></h1>
+    <div class="meta">
+      <label class="meta">Project
+        <select id="project" style="font:inherit;padding:3px 6px;border-radius:6px;border:1px solid var(--line);background:var(--panel);color:var(--ink)">
+          <option value="">All projects</option></select></label>
+      <span><span class="dot" id="live"></span><span id="updated">connecting…</span></span>
+      <span id="since"></span>
+    </div>
+  </header>
+
+  <div class="banner" id="banner"></div>
+  <h2>Progress</h2>
+  <div class="kpis" id="kpis-progress"></div>
+
+  <h2>Workload</h2>
+  <div class="agents" id="agents"></div>
+
+  <h2>Performance</h2>
+  <div class="kpis" id="kpis-perf"></div>
+
+  <h2>Quality, guardrails &amp; memory</h2>
+  <div class="kpis" id="kpis-quality"></div>
+  <div class="agents" style="margin-top:12px">
+    <div class="panel"><div class="gbars" id="gbars"></div><div class="note">Guardrail hits in the window, by G-number. Red = G3/G4/G8 (count toward fake-WORKS).</div></div>
+    <div class="panel"><div class="gbars" id="rounds"></div><div class="note">Advisor rounds per finished task.</div></div>
+  </div>
+
+  <h2>Weekly trends</h2>
+  <div class="trends" id="trends"></div>
+
+  <h2>Timeline</h2>
+  <div class="panel">
+    <div id="timeline"></div>
+    <div class="legend">
+      <span><i style="background:var(--ok)"></i>Works</span>
+      <span><i style="background:var(--bad)"></i>Doesn't work</span>
+      <span><i style="background:var(--warn)"></i>Blocked / no report</span>
+      <span><i style="background:var(--advisor)"></i>Advisor guidance</span>
+      <span><i style="background:var(--run)"></i>Running</span>
+    </div>
+  </div>
+
+  <h2>Tasks</h2>
+  <div class="panel" id="tasks"></div>
+
+  <h2>Headless runs</h2>
+  <div class="panel" id="runs"></div>
+
+  <h2>Alerts</h2>
+  <div class="panel" id="alerts"></div>
+  <p class="note" style="padding:12px 0">⚠︎ = below the metric's minimum sample size. Definitions: <code>orch-dashboard --spec</code>.</p>
+</div>
+
+<!--SNAPSHOT-->
+<script>
+const REFRESH_MS = 3000;
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const fmtDur = (s) => {
+  if (s == null) return "—";
+  s = Math.round(s);
+  if (s < 60) return s + "s";
+  if (s < 3600) return Math.floor(s / 60) + "m " + (s % 60) + "s";
+  return Math.floor(s / 3600) + "h " + Math.floor((s % 3600) / 60) + "m";
+};
+const fmtNum = (n) => n == null ? "—" : n >= 1e6 ? (n / 1e6).toFixed(2) + "M" : n >= 1e3 ? (n / 1e3).toFixed(1) + "k" : String(n);
+const fmtPct = (p) => p == null ? "—" : p + "%";
+const fmtTime = (ts) => new Date(ts * 1000).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
+const AGENT_COLOR = { orchestrator: "var(--orch)", worker: "var(--worker)", advisor: "var(--advisor)" };
+const STATUS_COLOR = { WORKS: "var(--ok)", DOES_NOT_WORK: "var(--bad)", ERROR: "var(--bad)", BLOCKED: "var(--warn)",
+  NO_REPORT: "var(--warn)", GUIDANCE: "var(--advisor)", RUNNING: "var(--run)", DONE: "var(--orch)" };
+const STATE_LABEL = { done: "Done", in_progress: "In progress", failing: "Failing", stuck: "Stuck — needs you",
+  consulting: "Asking advisor", retry_pending: "Retry pending", queued: "Queued" };
+
+function kpi(label, val, sub = "", extra = "", cls = "") {
+  return `<div class="panel kpi ${cls}"><div class="label">${label}</div><div class="val">${val}</div>
+    ${sub ? `<div class="sub">${sub}</div>` : ""}${extra}</div>`;
+}
+
+function renderProgress(s) {
+  const p = s.progress, st = p.by_state || {};
+  const total = p.planned_total || p.tasks_total || 0;
+  const seg = (n, c) => total ? `<span style="width:${100 * n / total}%;background:${c}"></span>` : "";
+  const active = (st.in_progress || 0) + (st.consulting || 0) + (st.retry_pending || 0) + (st.failing || 0);
+  const bar = `<div class="bar">${seg(st.done || 0, "var(--ok)")}${seg(active, "var(--run)")}${seg(st.stuck || 0, "var(--bad)")}</div>`;
+  const doneCount = p.planned_total ? p.planned_done : (st.done || 0);
+  $("kpis-progress").innerHTML =
+    kpi("Overall progress", fmtPct(p.pct), `${doneCount} of ${total} tasks done`, bar, "hero") +
+    kpi("Done", st.done || 0) +
+    kpi("Active", active, "running, retrying or with advisor") +
+    kpi("Stuck", st.stuck || 0, "advisor limit reached") +
+    kpi("Not started", Math.max(0, total - p.tasks_total), p.planned_total ? "in the plan, not dispatched" : "no plan logged");
+}
+
+function renderAgents(s) {
+  const elapsed = Math.max(1, s.generated_at - s.since);
+  $("agents").innerHTML = Object.entries(s.agents).map(([name, a]) => {
+    const busy = a.running > 0;
+    const util = name === "orchestrator" ? null : Math.min(100, a.utilization_pct ?? 100 * a.busy_sec / elapsed);
+    const rows = name === "orchestrator"
+      ? [["Tool calls", fmtNum(a.tool_calls)], ["Tool failures", a.tool_failures],
+         ["Dispatched to worker", s.agents.worker?.dispatches ?? 0], ["Escalated to advisor", s.agents.advisor?.dispatches ?? 0]]
+      : [["Dispatches", a.dispatches], ["Busy time", fmtDur(a.busy_sec)],
+         ["Avg / p90 per run", `${fmtDur(a.avg_sec)} / ${fmtDur(a.p90_sec)}`], ["Tool calls (fails)", `${fmtNum(a.tool_calls)} (${a.tool_failures})`],
+         ["Tokens", fmtNum(a.tokens)],
+         name === "worker" ? ["Works / fails", `${a.works ?? 0} / ${a.fails ?? 0}`] : ["Utilization", fmtPct(util?.toFixed(0))]];
+    const utilBar = util == null ? "" :
+      `<div class="bar" title="Utilization ${util.toFixed(0)}%"><span style="width:${util}%;background:${AGENT_COLOR[name] || "var(--orch)"}"></span></div>`;
+    return `<div class="panel agent" style="--c:${AGENT_COLOR[name] || "var(--orch)"}">
+      <div class="top"><span class="name">${esc(name)}</span>
+        <span class="pill p-${busy ? "busy" : "idle"}">${busy ? a.running + " running" : "idle"}</span></div>
+      ${utilBar}
+      <dl>${rows.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join("")}</dl></div>`;
+  }).join("");
+}
+
+function renderPerf(s) {
+  const p = s.performance;
+  $("kpis-perf").innerHTML =
+    kpi("First-try success", fmtPct(p.first_try_success_pct), "worker solved it without advisor") +
+    kpi("Escalation rate", fmtPct(p.escalation_pct), "tasks that needed the advisor") +
+    kpi("Advisor fix rate", fmtPct(p.advisor_fix_pct), "escalated tasks later done") +
+    kpi("Worker success", fmtPct(p.worker_success_pct), "per worker run") +
+    kpi("Avg time per task", fmtDur(p.avg_task_sec), "first dispatch → works") +
+    kpi("Throughput", p.throughput_per_hour, "tasks done / hour") +
+    kpi("Tokens", fmtNum(p.total_tokens), "subagents") +
+    kpi("Cost", p.cost_usd ? "$" + p.cost_usd.toFixed(2) : "—", "OTel, else headless runs");
+}
+
+function renderTimeline(s) {
+  const items = s.timeline;
+  if (!items.length) { $("timeline").innerHTML = `<div class="empty">No dispatches yet.</div>`; return; }
+  const lanes = ["worker", "advisor", ...new Set(items.map(i => i.agent).filter(a => a !== "worker" && a !== "advisor"))];
+  const t0 = Math.min(...items.map(i => i.start)), t1 = Math.max(s.generated_at, ...items.map(i => i.end || 0));
+  const W = Math.max($("timeline").clientWidth - 32, 600), L = 80, laneH = 34, top = 6;
+  const x = (t) => L + (W - L - 8) * (t - t0) / Math.max(1, t1 - t0);
+  const H = top + lanes.length * laneH + 22;
+  let svg = `<svg width="${W}" height="${H}" role="img" aria-label="Dispatch timeline">`;
+  lanes.forEach((ln, i) => {
+    const y = top + i * laneH;
+    svg += `<text x="0" y="${y + laneH / 2 + 4}" style="fill:${AGENT_COLOR[ln] || "var(--muted)"};font-weight:600;text-transform:capitalize">${esc(ln)}</text>`;
+    svg += `<line x1="${L}" x2="${W}" y1="${y + laneH}" y2="${y + laneH}" stroke="var(--line)"/>`;
+  });
+  const ticks = 6;
+  for (let k = 0; k <= ticks; k++) {
+    const t = t0 + (t1 - t0) * k / ticks;
+    const lab = (t1 - t0) > 86400 ? new Date(t * 1000).toLocaleDateString([], {month: "short", day: "numeric"}) + " " + fmtTime(t) : fmtTime(t);
+    svg += `<text x="${x(t)}" y="${H - 4}" text-anchor="${k === 0 ? "start" : k === ticks ? "end" : "middle"}">${lab}</text>`;
+  }
+  items.forEach(it => {
+    const y = top + lanes.indexOf(it.agent) * laneH + 7;
+    const x0 = x(it.start), x1 = x(it.end || s.generated_at);
+    const w = Math.max(3, x1 - x0);
+    const tip = `${it.project ? it.project + " " : ""}${it.task} · ${it.agent} · ${it.status} · ${fmtDur((it.end || s.generated_at) - it.start)}\n${it.description || ""}`;
+    svg += `<rect x="${x0}" y="${y}" width="${w}" height="${laneH - 14}" rx="3" fill="${STATUS_COLOR[it.status] || "var(--orch)"}"
+      opacity="${it.status === "RUNNING" ? 0.55 : 0.9}"><title>${esc(tip)}</title></rect>`;
+    if (w > 34) svg += `<text x="${x0 + 5}" y="${y + (laneH - 14) / 2 + 4}" style="fill:#fff;font-weight:600;pointer-events:none">${esc(it.task)}</text>`;
+  });
+  $("timeline").innerHTML = svg + "</svg>";
+}
+
+function renderTasks(s) {
+  if (!s.tasks.length && !s.plan.length) {
+    $("tasks").innerHTML = `<div class="empty">No tasks yet. Start the orchestrator with <code>orch</code> and it will tag each task like <code>[T1] …</code>.</div>`; return;
+  }
+  const chip = (h) => {
+    const label = h.agent === "advisor" ? "A" : h.status === "WORKS" ? "✓" : h.status === "RUNNING" ? "…" : "✗";
+    return `<span class="chip p-${h.status}" title="${esc(h.agent + ": " + h.status)}">${label}</span>`;
+  };
+  const rows = s.tasks.slice().reverse().map(t => `<tr>
+    <td><b>${esc(t.task)}</b>${t.project ? `<div class="sub" style="color:var(--muted);font-size:11px">${esc(t.project)}</div>` : ""}</td>
+    <td class="title-cell" title="${esc(t.title)}">${esc(t.title.replace(/^\s*\[[^\]]+\]\s*/, ""))}</td>
+    <td><span class="pill p-${t.state}">${STATE_LABEL[t.state] || t.state}</span></td>
+    <td class="num">${t.worker_runs}</td>
+    <td class="num">${t.advisor_rounds}</td>
+    <td>${t.first_try == null ? "—" : t.first_try ? "Yes" : "No"}</td>
+    <td class="num">${fmtDur((t.end || s.generated_at) - t.start)}</td>
+    <td><div class="chips">${t.history.map(chip).join("")}</div></td></tr>`).join("");
+  const dispatched = new Set(s.tasks.map(t => t.task));
+  const notStarted = s.plan.filter(p => {
+    const m = /\[\s*([A-Za-z]+-?\d+)\s*\]/.exec(p.subject || "");
+    return !(m && dispatched.has(m[1].toUpperCase())) && !/complet|done/i.test(p.status || "");
+  }).map(p => `<tr><td>—</td><td class="title-cell">${esc(p.subject)}</td><td><span class="pill p-queued">Not started</span></td>
+    <td></td><td></td><td></td><td></td><td></td></tr>`).join("");
+  $("tasks").innerHTML = `<table><thead><tr><th>ID</th><th>Task</th><th>State</th><th>Worker runs</th>
+    <th>Advisor rounds</th><th>First try</th><th>Elapsed</th><th>History</th></tr></thead><tbody>${rows}${notStarted}</tbody></table>`;
+}
+
+function renderRuns(s) {
+  s = {...s, runs: s.runs.filter(r => r.kind !== "start")};
+  if (!s.runs.length) { $("runs").innerHTML = `<div class="empty">No headless runs yet. Use <code>orch-headless "your task"</code>.</div>`; return; }
+  $("runs").innerHTML = `<table><thead><tr><th>Started</th><th>Prompt</th><th>Result</th><th>Turns</th><th>Duration</th><th>Cost</th></tr></thead><tbody>
+    ${s.runs.slice().reverse().map(r => `<tr><td>${fmtTime(r.ts - (r.duration_ms || 0) / 1000)}</td>
+      <td class="title-cell" title="${esc(r.prompt || r.run_id || "")}">${esc(r.prompt || r.run_id || r.project || "")}</td>
+      <td><span class="pill p-${r.is_error ? "ERROR" : "WORKS"}">${r.is_error ? "Error" : "OK"}</span></td>
+      <td class="num">${r.num_turns ?? "—"}</td><td class="num">${fmtDur((r.duration_ms || 0) / 1000)}</td>
+      <td class="num">${r.cost_usd != null ? "$" + r.cost_usd.toFixed(2) : "—"}</td></tr>`).join("")}</tbody></table>`;
+}
+
+
+const fmtMetric = (m) => {
+  if (!m || m.value == null) return "—";
+  const v = m.unit === "%" ? m.value.toFixed(1) + "%" : m.unit === "USD" ? "$" + m.value.toFixed(2) : m.unit === "s" ? fmtDur(m.value) : String(m.value);
+  return m.sufficient ? v : `${v} <span class="warn-n" title="n=${m.n} below minimum ${m.min_sample}">⚠︎ n=${m.n}</span>`;
+};
+
+function renderQuality(v) {
+  const m = v.metrics;
+  $("kpis-quality").innerHTML =
+    kpi("Fake-WORKS rate", fmtMetric(m.fake_works_pct), "WORKS reports flagged by G3/G4/G8") +
+    kpi("Guardrail hits / task", fmtMetric(m.guardrail_hits_per_task), `${v.guardrails.total} hits · ${v.guardrails.unattributed} unattributed`) +
+    kpi("Memory hit rate", fmtMetric(m.memory_hit_pct), "advisor FROM MEMORY ≠ none") +
+    kpi("Memory-assisted success", fmtMetric(m.memory_assisted_success_pct), "tasks with a memory hit, done") +
+    kpi("Cost per solved task", fmtMetric(m.cost_per_solved_task_usd), Object.keys(v.cost_sources || {}).join(" + ") || "no cost data") +
+    kpi("Tool failure rate", fmtMetric(m.tool_failure_pct), "non-Agent tool calls");
+  const gs = Object.entries(v.guardrails.by_guardrail);
+  const gmax = Math.max(1, ...gs.map(([, x]) => x.hits));
+  $("gbars").innerHTML = gs.map(([g, x]) => `<b>${g}</b><div class="track ${["G3","G4","G8"].includes(g) ? "crit" : ""}" title="${g}: ${x.hits} hit(s), ${x.per_task ?? "—"} per task"><div class="fill" style="width:${100 * x.hits / gmax}%"></div></div><span class="num">${x.hits}</span>`).join("");
+  const rd = Object.entries(v.advisor_rounds_distribution);
+  const rmax = Math.max(1, ...rd.map(([, n]) => n));
+  $("rounds").innerHTML = rd.map(([k, n]) => `<b>${k}</b><div class="track" title="${n} task(s) with ${k} advisor round(s)"><div class="fill" style="width:${100 * n / rmax}%;background:var(--advisor)"></div></div><span class="num">${n}</span>`).join("");
+  const j = v.join || {};
+  if (v.active_runs && v.active_runs.length) {
+    $("banner").style.display = "block";
+    $("banner").textContent = `${v.active_runs.length} headless run(s) active: ` + v.active_runs.map(r => r.project + " " + r.run_id).join(", ");
+  } else if (!SNAP) { $("banner").style.display = "none"; }
+}
+
+const TREND_METRICS = ["tasks_done", "first_try_success_pct", "advisor_fix_pct", "fake_works_pct",
+  "memory_hit_pct", "guardrail_hits_per_task", "cost_per_solved_task_usd", "worker_success_pct"];
+function spark(series, unit) {
+  const W = 220, H = 64, P = 6;
+  const pts = series.filter(p => p.value != null);
+  if (pts.length < 1) return `<div class="note" style="padding:8px 0">no data yet</div>`;
+  const vals = pts.map(p => p.value), lo = Math.min(0, ...vals), hi = Math.max(...vals, unit === "%" ? 100 : 1e-9);
+  const x = (i) => P + (W - 2 * P) * (series.length === 1 ? 0.5 : i / (series.length - 1));
+  const y = (v) => H - 14 - (H - 22) * (v - lo) / Math.max(1e-9, hi - lo);
+  let path = "", dots = "";
+  series.forEach((p, i) => {
+    if (p.value == null) return;
+    path += (path ? "L" : "M") + x(i).toFixed(1) + "," + y(p.value).toFixed(1);
+    const lab = (unit === "%" ? p.value.toFixed(1) + "%" : unit === "USD" ? "$" + p.value.toFixed(2) : p.value) + (p.sufficient === false ? ` (n=${p.n}, below min)` : "");
+    dots += `<circle cx="${x(i)}" cy="${y(p.value)}" r="${p.sufficient === false ? 3 : 4}" fill="${p.sufficient === false ? "var(--panel)" : "var(--worker)"}" stroke="var(--worker)" stroke-width="2"><title>${esc(p.week)}: ${esc(lab)}</title></circle>`;
+    dots += `<rect x="${x(i) - 12}" y="0" width="24" height="${H}" fill="transparent"><title>${esc(p.week)}: ${esc(lab)}</title></rect>`;
+  });
+  const first = series[0].week, last = series[series.length - 1].week;
+  return `<svg width="100%" viewBox="0 0 ${W} ${H}" role="img" aria-label="weekly trend">
+    <line x1="${P}" x2="${W - P}" y1="${H - 14}" y2="${H - 14}" stroke="var(--line)"/>
+    <path d="${path}" fill="none" stroke="var(--worker)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>${dots}
+    <text x="${P}" y="${H - 2}">${esc(first)}</text><text x="${W - P}" y="${H - 2}" text-anchor="end">${esc(last)}</text></svg>`;
+}
+function renderTrends(tr, spec) {
+  const titles = Object.fromEntries((spec || []).map(m => [m.name, m]));
+  $("trends").innerHTML = TREND_METRICS.map(name => {
+    const ser = tr.series[name] || [], last = ser[ser.length - 1];
+    const sp = titles[name] || {name, unit: ""};
+    return `<div class="panel trend"><div class="label"><span title="${esc(sp.formula || "")}">${esc(sp.title || name)}</span><span>${ser.length} wk</span></div>
+      <div class="val">${fmtMetric(last)}</div>${spark(ser, sp.unit)}</div>`;
+  }).join("");
+}
+
+function renderAlerts(list) {
+  if (!list || !list.length) { $("alerts").innerHTML = `<div class="empty">No alerts. Rules: <code>~/.claude/agent-dashboard/alerts.yaml</code>, evaluated by <code>orch-dashboard --tick</code>.</div>`; return; }
+  $("alerts").innerHTML = `<table><thead><tr><th>Rule</th><th>Severity</th><th>Project</th><th>Task</th><th>Status</th><th>Last seen</th><th>Sent</th></tr></thead><tbody>
+    ${list.slice(0, 30).map(a => `<tr><td>${esc(a.rule_id)}</td><td><span class="pill p-${a.severity === "critical" || a.severity === "high" ? "stuck" : "BLOCKED"}">${esc(a.severity)}</span></td>
+      <td>${esc(a.project || "—")}</td><td>${esc(a.task_id || "—")}</td><td>${esc(a.status)}${a.held ? " (held)" : ""}</td>
+      <td>${new Date(a.last_seen * 1000).toLocaleString()}</td><td class="num">${a.send_count}</td></tr>`).join("")}</tbody></table>`;
+}
+
+const SNAP = window.__SNAPSHOT__ || null;
+
+async function refresh() {
+  try {
+    const sel = $("project");
+    const proj = sel.value;
+    const res = await fetch("/api/state" + (proj ? "?project=" + encodeURIComponent(proj) : ""), { cache: "no-store" });
+    const s = await res.json();
+    const cur = s.projects || [];
+    if (sel.options.length - 1 !== cur.length || [...sel.options].slice(1).some((o, i) => o.value !== cur[i])) {
+      const keep = sel.value;
+      sel.innerHTML = '<option value="">All projects</option>' + cur.map(p => `<option value="${esc(p)}">${esc(p)}</option>`).join("");
+      sel.value = keep;
+    }
+    const q = proj ? "?project=" + encodeURIComponent(proj) : "";
+    const [v, tr, al, sp] = await Promise.all([
+      fetch("/api/v1/metrics" + q, {cache: "no-store"}).then(r => r.json()),
+      fetch("/api/v1/trends" + q, {cache: "no-store"}).then(r => r.json()),
+      fetch("/api/v1/alerts", {cache: "no-store"}).then(r => r.json()),
+      SPEC ? Promise.resolve(null) : fetch("/api/v1/spec").then(r => r.json())]);
+    if (sp) SPEC = sp.metrics;
+    renderAll(s, v, tr, al.alerts);
+    $("live").classList.remove("stale");
+    $("updated").textContent = "Live · updated " + new Date().toLocaleTimeString();
+    $("since").textContent = s.sessions + " session(s) since " + new Date(s.since * 1000).toLocaleString();
+  } catch (e) {
+    $("live").classList.add("stale");
+    $("updated").textContent = "Server unreachable — retrying";
+  }
+}
+let SPEC = null;
+function renderAll(s, v, tr, alerts) {
+  renderProgress(s); renderAgents(s); renderPerf(s); renderQuality(v); renderTrends(tr, SPEC);
+  renderTimeline(s); renderTasks(s); renderRuns(s); renderAlerts(alerts);
+}
+if (SNAP) {
+  SPEC = SNAP.spec;
+  const sel = $("project");
+  sel.innerHTML = `<option>${esc(SNAP.project || "All projects")}</option>`; sel.disabled = true;
+  const draw = () => renderAll(SNAP.state, SNAP.v1, SNAP.trends, SNAP.alerts || []);
+  draw();
+  $("updated").textContent = "Static snapshot · " + new Date(SNAP.snapshot_at * 1000).toLocaleString();
+  $("since").textContent = SNAP.state.sessions + " session(s) since " + new Date(SNAP.state.since * 1000).toLocaleString();
+  window.addEventListener("resize", draw);
+} else {
+  const p0 = new URLSearchParams(location.search).get("project");
+  if (p0) { $("project").innerHTML += `<option value="${esc(p0)}">${esc(p0)}</option>`; $("project").value = p0; }
+  refresh();
+  setInterval(refresh, REFRESH_MS);
+  window.addEventListener("resize", () => refresh());
+  $("project").addEventListener("change", refresh);
+}
+</script>
+</body>
+</html>

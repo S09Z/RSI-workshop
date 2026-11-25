@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Agent workflow dashboard v2. With no flags: live UI on http://127.0.0.1:8765 (as in v1).
+#   orch-dashboard --json | --report daily|weekly | --snapshot | --tick | --otlp | --help
+exec env PYTHONPATH="$HOME/.claude/agent-dashboard${PYTHONPATH:+:$PYTHONPATH}" python3 -m agentdash.cli "$@"

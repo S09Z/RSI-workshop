@@ -1,0 +1,66 @@
+{
+  "active": 1,
+  "advisor_with_field": 14,
+  "base": 1793577600.0,
+  "cost_by_source": {
+    "otel_logs": 3.319269,
+    "otel_metrics": 0.79223,
+    "run_result": 1.25
+  },
+  "cost_usd": 5.361499,
+  "done": 18,
+  "escalated_terminal": 11,
+  "events": 418,
+  "fake_works": 3,
+  "first_try": 10,
+  "fixed": 8,
+  "guardrail_hits": {
+    "G1": 1,
+    "G2": 1,
+    "G3": 1,
+    "G4": 1,
+    "G5": 1,
+    "G6": 1,
+    "G7": 1,
+    "G8": 1
+  },
+  "guardrail_total": 8,
+  "memory_hits": 7,
+  "memory_tasks_done": 4,
+  "memory_tasks_terminal": 7,
+  "now": 1795478400.0,
+  "projects": {
+    "data-pipeline": {
+      "done": 4,
+      "stuck": 1,
+      "tasks": 6
+    },
+    "mobile-app": {
+      "done": 5,
+      "stuck": 1,
+      "tasks": 6
+    },
+    "shop-api": {
+      "done": 9,
+      "stuck": 2,
+      "tasks": 11
+    }
+  },
+  "rounds": {
+    "0": 11,
+    "1": 8,
+    "2": 3,
+    "3+": 0
+  },
+  "stuck": 4,
+  "stuck_keys": [
+    "shop-api/T2",
+    "shop-api/T3",
+    "mobile-app/T2",
+    "data-pipeline/T2"
+  ],
+  "tasks": 23,
+  "with_report": 22,
+  "worker_reports": 37,
+  "works_reports": 18
+}

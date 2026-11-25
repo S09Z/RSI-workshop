@@ -1,0 +1,80 @@
+# Alert rules for orch-dashboard (copied to ~/.claude/agent-dashboard/alerts.yaml on install,
+# never overwritten afterwards). Evaluated by `orch-dashboard --tick` from a timer (deploy/).
+# Secrets are NEVER written here: each channel names the env var that holds its URL / token.
+# The timer reads them from ~/.claude/agent-dashboard/alerts.env (chmod 600).
+version: 1
+
+defaults:
+  dashboard_url: http://127.0.0.1:8765
+  max_per_channel_per_run: 5          # more than this in one tick -> one digest message
+  quiet_hours:
+    start: "22:00"
+    end: "07:00"
+    tz: Asia/Bangkok
+    allow_severity: [critical]        # critical still goes out; the rest is held until 07:00
+
+channels:
+  log:
+    type: file                        # always works offline; one JSON payload per line
+    path: ~/.claude/agent-dashboard/alerts.log
+  slack:
+    type: slack
+    url_env: AGENTDASH_SLACK_WEBHOOK
+  discord:
+    type: discord
+    url_env: AGENTDASH_DISCORD_WEBHOOK
+  line:
+    type: line                        # LINE Messaging API push (LINE Notify ended 2025-03-31)
+    token_env: AGENTDASH_LINE_TOKEN   # channel access token
+    to_env: AGENTDASH_LINE_TO         # userId / groupId
+  webhook:
+    type: webhook                     # generic: POSTs the agentdash.alert/v1 payload as JSON
+    url_env: AGENTDASH_WEBHOOK_URL
+
+rules:
+  - id: task_stuck
+    kind: task_stuck                  # STUCK = 2 advisor rounds used up, or headless run ended unresolved
+    severity: high
+    lookback: 7d
+    channels: [log, slack, line]
+
+  - id: guardrail_g3_g8
+    kind: guardrail_hit               # silent failure (G3) or edited acceptance test (G8)
+    guardrails: [G3, G8]
+    severity: critical
+    lookback: 1d
+    channels: [log, slack, discord, line]
+
+  - id: daily_budget
+    kind: cost_over_budget            # UTC day; one alert per day
+    budget_usd: 20
+    severity: high
+    channels: [log, slack]
+
+  - id: advisor_fix_rate_low
+    kind: advisor_fix_rate
+    last_n: 20                        # needs 20 finished escalations before it can fire
+    below_pct: 50
+    severity: warning
+    repeat_interval: 24h
+    notify_resolved: true
+    channels: [log, slack]
+
+  - id: headless_silent
+    kind: no_events                   # a run_start without run_result and no events for N minutes
+    minutes: 15
+    severity: high
+    repeat_interval: 1h
+    notify_resolved: true
+    channels: [log, slack, line]
+
+  # Optional example of a generic threshold on any metric from `orch-dashboard --spec`:
+  - id: fake_works_weekly
+    kind: metric_threshold
+    metric: fake_works_pct
+    window: 7d
+    op: ">"
+    value: 10
+    severity: warning
+    repeat_interval: 24h
+    channels: [log]

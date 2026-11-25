@@ -1,0 +1,11 @@
+# systemctl --user enable --now agentdash-otlp.service
+[Unit]
+Description=agentdash OTLP/HTTP JSON receiver (127.0.0.1:4318)
+
+[Service]
+ExecStart=/bin/bash -lc 'exec %h/.local/bin/orch-dashboard --otlp'
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=default.target

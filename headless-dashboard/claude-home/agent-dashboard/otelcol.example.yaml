@@ -1,0 +1,31 @@
+# OPTIONAL alternative to `orch-dashboard --otlp`: the OpenTelemetry Collector (contrib).
+# Use it if you need protobuf/gRPC, batching or fan-out to another backend as well.
+# The file exporter writes "newline-delimited OTLP JSON, one line per batch", which the
+# agentdash ingester reads directly from otel.jsonl.
+#   otelcol-contrib --config ~/.claude/agent-dashboard/otelcol.example.yaml
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 127.0.0.1:4318
+      grpc:
+        endpoint: 127.0.0.1:4317
+processors:
+  batch: {}
+  attributes/drop_content:            # keep prompts / tool input out of the file
+    actions:
+      - {key: prompt, action: delete}
+      - {key: user_prompt, action: delete}
+      - {key: tool_input, action: delete}
+      - {key: tool_parameters, action: delete}
+      - {key: response, action: delete}
+exporters:
+  file:
+    path: ${env:HOME}/.claude/agent-dashboard/otel.jsonl
+    format: json
+    append: true                      # note: append cannot be combined with rotation
+service:
+  pipelines:
+    traces:  {receivers: [otlp], processors: [attributes/drop_content, batch], exporters: [file]}
+    logs:    {receivers: [otlp], processors: [attributes/drop_content, batch], exporters: [file]}
+    metrics: {receivers: [otlp], processors: [batch], exporters: [file]}

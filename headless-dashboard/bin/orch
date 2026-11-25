@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Start an interactive orchestrator session in the current project.
+#   orch                 -> main session acts as the orchestrator
+#   orch "Fix the tests" -> same, with the first prompt pre-filled
+# Logging is enabled only for sessions started here (AGENT_WORKFLOW=1).
+set -euo pipefail
+export AGENT_WORKFLOW=1
+# shellcheck source=/dev/null
+[ -f "$HOME/.claude/agent-dashboard/otel-env.sh" ] && . "$HOME/.claude/agent-dashboard/otel-env.sh"
+if [ "$#" -gt 0 ]; then
+  exec claude --agent orchestrator "$@"
+fi
+exec claude --agent orchestrator
