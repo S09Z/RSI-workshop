@@ -28,7 +28,7 @@ guardrails:
     protected: true
   - id: G6
     name: Advisor may write only to its memory folder
-    enforces: Advisor writes stay inside its memory folder
+    enforces: Advisor Write and Edit calls are allowed only inside its memory folder (~/.claude/agent-memory/advisor/)
     status: active
     protected: true
   - id: G7
