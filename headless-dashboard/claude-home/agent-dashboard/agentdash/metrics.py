@@ -347,13 +347,19 @@ def compute(conn, project=None, since=None, until=None, now=None, max_rounds=2, 
     return out
 
 
+def _gkey(g):
+    """Sort key that never raises: G1..G99 in number order, anything else after them."""
+    d = str(g)[1:]
+    return (0, int(d), "") if d.isdigit() else (1, 0, str(g))
+
+
 def guardrail_breakdown(hits, touched):
     by_g = {g: 0 for g in ALL_GUARDRAILS}
     for h in hits:
         by_g[h["guardrail"]] = by_g.get(h["guardrail"], 0) + 1
     n = len(touched)
     return {"total": len(hits), "tasks": n,
-            "by_guardrail": {g: {"hits": v, "per_task": round(v / n, 3) if n else None} for g, v in sorted(by_g.items(), key=lambda kv: int(kv[0][1:]))},
+            "by_guardrail": {g: {"hits": v, "per_task": round(v / n, 3) if n else None} for g, v in sorted(by_g.items(), key=lambda kv: _gkey(kv[0]))},
             "unattributed": sum(1 for h in hits if not h["dispatch_id"] and not h["task_id"])}
 
 
@@ -489,16 +495,18 @@ def days_with_data(conn):
 
 
 def rollup(conn, days=None, now=None, recompute_recent=2):
-    """Write daily_aggregates for each day x project (and '*'). Past days already computed are
-    skipped, except the most recent `recompute_recent` days, which may still receive events."""
+    """Write daily_aggregates for each day x project (and '*'). A past day that is already
+    computed is skipped unless it is one of the most recent `recompute_recent` days or ingest
+    marked it dirty (late events for it arrived after its aggregates were written)."""
     now = now or time.time()
     days = days or days_with_data(conn)
     today = _dt.datetime.fromtimestamp(now, _dt.timezone.utc).date()
     projects = [r[0] for r in conn.execute("SELECT DISTINCT project FROM raw_events WHERE project IS NOT NULL")]
+    dirty = {r[0] for r in conn.execute("SELECT day FROM rollup_dirty")}
     written = 0
     for day in days:
         age = (today - _dt.date.fromisoformat(day)).days
-        if age >= recompute_recent:
+        if age >= recompute_recent and day not in dirty:
             if conn.execute("SELECT 1 FROM daily_aggregates WHERE day=? LIMIT 1", (day,)).fetchone():
                 continue
         s, e = _day_bounds(day)
@@ -515,6 +523,9 @@ def rollup(conn, days=None, now=None, recompute_recent=2):
                     conn.execute("INSERT OR REPLACE INTO daily_aggregates VALUES (?,?,?,?,?,?,?)",
                                  (day, p or "*", f"advisor_rounds_{k}", v, None, v, now))
             written += 1
+        if day in dirty:
+            with conn:
+                conn.execute("DELETE FROM rollup_dirty WHERE day=?", (day,))
     return written
 
 

@@ -27,7 +27,8 @@ def apply(conn, cfg, now=None):
             deleted[table] = conn.execute(f"DELETE FROM {table} WHERE {col} < ?", (raw_cut,)).rowcount
         for table, col in STRUCTURED:
             deleted[table] = conn.execute(f"DELETE FROM {table} WHERE {col} < ?", (st_cut,)).rowcount
-        deleted["alert_state"] = conn.execute("DELETE FROM alert_state WHERE status='resolved' AND last_seen < ?",
+        # resolved rows, plus any row (event rules never resolve) not seen since the cut and not owed a send
+        deleted["alert_state"] = conn.execute("DELETE FROM alert_state WHERE last_seen < ? AND (status='resolved' OR held=0)",
                                               (st_cut,)).rowcount
         conn.execute("INSERT OR REPLACE INTO ingest_state(source,path,offset,updated_at) "
                      "SELECT 'retention', 'n/a', 0, ? ", (now,))

@@ -9,24 +9,38 @@ TASK_ID_RE = re.compile(r"\[\s*([A-Za-z]+-?\d+)\s*\]")
 STATUS_RE = re.compile(r"STATUS:\s*(WORKS|DOES_NOT_WORK|BLOCKED)", re.I)
 CONF_RE = re.compile(r"CONFIDENCE:\s*(high|medium|low)", re.I)
 ATTEMPTS_RE = re.compile(r"ATTEMPTS:\s*(\d+)")
-FROM_MEMORY_RE = re.compile(r"FROM[ _]MEMORY:\s*(.+)", re.I)
+FROM_MEMORY_RE = re.compile(r"FROM[ _]MEMORY:[ \t]*(.*)", re.I)   # value stays on the same line
+NONE_RE = re.compile(r"^[\W_]*(?:none|n/?a|nil|no lesson|-+)(?:\b|$|\W)", re.I)
 VERIFICATION_RE = re.compile(r"VERIFICATION:\s*\n\s*-\s*command:\s*(\S.*)", re.I)
 WORKER_BLOCK = "=== WORKER REPORT ==="
 ADVISOR_BLOCK = "=== ADVISOR GUIDANCE ==="
 # Guardrail hooks are expected to emit `GUARDRAIL G3: <reason>` (stderr / denial reason).
 # `[G3]` and `G3 hit` are accepted too. Bare "G3" is not, to avoid false positives.
+GUARDRAIL_NAME_RE = re.compile(r"^\s*G(\d{1,2})\s*$", re.I)
+
+
+def guardrail_name(g):
+    """Normalise 'g3' / 'G03' to 'G3'. Anything else (non-string, 'GX', 'G3a') returns None."""
+    m = GUARDRAIL_NAME_RE.match(g) if isinstance(g, str) else None
+    return f"G{int(m.group(1))}" if m else None
+
+
 GUARDRAIL_RE = re.compile(r"(?:GUARDRAIL[ _:-]*(G\d{1,2})\b|\[(G\d{1,2})\]|\b(G\d{1,2})\s+hit\b)", re.I)
 
 BUILTIN_REDACTIONS = [
-    r"sk-ant-[A-Za-z0-9_\-]{10,}",
-    r"sk-[A-Za-z0-9]{20,}",
-    r"gh[pousr]_[A-Za-z0-9]{20,}",
-    r"AKIA[0-9A-Z]{16}",
-    r"xox[abprs]-[A-Za-z0-9\-]{10,}",
     r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----",
-    r"(?i)(password|passwd|secret|token|api[_-]?key)\s*[:=]\s*\S+",
-    r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}",
-    r"eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}",
+    r"(?i)\b(?:bearer|basic)\s+[A-Za-z0-9._~+/\-]{8,}=*",         # Authorization headers
+    r"sk-[A-Za-z0-9_\-]{20,}",                                     # Anthropic / OpenAI (sk-ant-, sk-proj-)
+    r"gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}",
+    r"AKIA[0-9A-Z]{16}",
+    r"AIza[0-9A-Za-z_\-]{35}",                                     # Google API keys
+    r"xox[abprs]-[A-Za-z0-9\-]{10,}",
+    r"eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}",  # JWTs
+    # key = value, key: value, "key": "value", MY_SECRET_KEY=..., AWS_SECRET_ACCESS_KEY=...
+    # ("tokens" is excluded so token counts in reports survive)
+    r"(?i)[\w.-]*(?:passw(?:or)?d|pwd|secret|token(?!s)|api[_-]?key|access[_-]?key|private[_-]?key|credentials?)"
+    r"[\w-]*[\"']?\s*[:=]\s*[\"']?[^\s\"',;}]+",
+    r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}",            # email addresses
 ]
 
 
@@ -73,8 +87,8 @@ def report(text, agent=None):
         out["confidence"] = c.group(1).lower() if c else None
         fm = FROM_MEMORY_RE.search(text)
         if fm:
-            val = fm.group(1).strip().strip("<>\"'` ").lower()
-            out["from_memory"] = "none" if val in ("none", "n/a", "-", "") else "hit"
+            val = fm.group(1).strip().strip("<>\"'`*_ ")
+            out["from_memory"] = "none" if (not val or NONE_RE.match(val)) else "hit"
         else:
             out["from_memory"] = None  # field missing: excluded from memory metrics
         out["contract_ok"] = ADVISOR_BLOCK in text and bool(c)
