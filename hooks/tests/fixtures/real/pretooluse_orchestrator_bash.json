@@ -1,0 +1,18 @@
+{
+ "session_id": "58b190e4-ba38-4dbb-83ed-6f0f7df84c08",
+ "transcript_path": "/home/u/.claude/projects/probe/58b190e4-ba38-4dbb-83ed-6f0f7df84c08.jsonl",
+ "cwd": "/tmp/probe/proj",
+ "prompt_id": "b67f1690-cdbc-4544-9a9c-512ad55c0c52",
+ "permission_mode": "acceptEdits",
+ "agent_type": "orchestrator",
+ "effort": {
+  "level": "high"
+ },
+ "hook_event_name": "PreToolUse",
+ "tool_name": "Bash",
+ "tool_input": {
+  "command": "test -f hello.txt && echo \"EXISTS\" && cat hello.txt",
+  "description": "Verify hello.txt exists and check contents"
+ },
+ "tool_use_id": "toolu_01AdzLFEKzXETuwQekmUde1Q"
+}
