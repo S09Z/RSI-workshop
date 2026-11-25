@@ -10,7 +10,7 @@ if len(sys.argv) == 3 and sys.argv[1] == "--root":
     ROOT = Path(sys.argv[2]).resolve()
 
 REQUIRED_FILES = [
-    "scripts/check_scaffold.py", ".gitignore", "README.md", "PROTECTED.paths",
+    "scripts/check_scaffold.py", "scripts/install.sh", ".gitignore", "README.md", "PROTECTED.paths",
     "agents/orchestrator.md", "agents/worker.md", "agents/advisor.md",
     "skills/README.md", "hooks/README.md", "hooks/guardrails.yaml",
     "routing/routing.yaml",
@@ -30,9 +30,6 @@ REQUIRED_PROTECTED = [
     "hooks/", "evals/graders/", "evals/tasks/heldout/", "PROTECTED.paths",
     "scripts/install.sh",
 ]
-# Paths that PROTECTED.paths lists but that a later task creates. Task 2 removes this entry.
-PENDING = {"scripts/install.sh"}
-
 fails = []
 
 
@@ -56,8 +53,6 @@ for req in REQUIRED_PROTECTED:
     if req not in prot:
         fail(f"PROTECTED.paths missing required line: {req}")
 for line in prot:
-    if line in PENDING:
-        continue
     if not (ROOT / line).exists():
         fail(f"PROTECTED.paths line not on disk: {line}")
 
