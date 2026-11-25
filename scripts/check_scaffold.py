@@ -56,7 +56,9 @@ for line in prot:
     if not (ROOT / line).exists():
         fail(f"PROTECTED.paths line not on disk: {line}")
 
-# hooks/ has no executable scripts
+# hooks/ has no executable scripts.
+# NOTE (Harden, ADR-0001): this rule must be relaxed in the Harden change, which creates hooks/g*.py.
+# Relax it then, not now: allow only scripts that hooks/guardrails.yaml references and that have tests.
 hooks = ROOT / "hooks"
 if hooks.is_dir():
     for p in hooks.rglob("*"):
@@ -71,9 +73,10 @@ g_text = read("hooks/guardrails.yaml")
 entries = {}
 cur = None
 for line in g_text.splitlines():
-    m = re.match(r"\s*-\s*id:\s*(G\d+)\s*$", line)
+    # accepts `- id: G3`, `- id: "G3"`, `- id: 'G3'`, each with an optional trailing `# comment`
+    m = re.match(r"""\s*-\s*id:\s*(["']?)(G\d+)\1\s*(#.*)?$""", line)
     if m:
-        cur = m.group(1)
+        cur = m.group(2)
         if cur in entries:
             fail(f"guardrails.yaml duplicate id: {cur}")
         entries[cur] = {}

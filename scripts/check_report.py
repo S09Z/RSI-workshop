@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
-"""Evidence-log and report checker. Exit 0 = pass; nonzero = one line per failure on stdout."""
+"""Evidence-log and report checker. Exit 0 = pass; nonzero = one line per failure on stdout.
+
+What it verifies: evidence-log rows are well formed (7 columns, E<n> id, date, evidence type);
+every [E<n>] citation in the report exists in the log; report structure (sections 1..11, section 1
+at most 200 words, Evidence/Inference subheadings in 2-8, a mermaid block in 3, a Quality bar).
+
+What it cannot detect: unsourced numbers. It does not check that a number in the report comes from
+the row it cites, or from any row; a figure with no citation and no "inference" label passes.
+"""
 import argparse
 import re
 import sys

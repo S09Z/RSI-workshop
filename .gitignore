@@ -2,3 +2,7 @@
 evals/results/raw/
 *.log
 .env
+memory/advisor/projects/*
+!memory/advisor/projects/.gitkeep
+memory/advisor/topics/*
+!memory/advisor/topics/.gitkeep
