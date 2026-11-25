@@ -39,6 +39,8 @@ def parse_since(s, now=None):
         return float(s)
     except ValueError:
         pass
+    if s[-1:] in "zZ":
+        s = s[:-1] + "+00:00"  # Python 3.10 fromisoformat does not accept a trailing Z
     d = _dt.datetime.fromisoformat(s)
     if d.tzinfo is None:
         d = d.replace(tzinfo=_dt.timezone.utc)

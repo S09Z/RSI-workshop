@@ -8,6 +8,11 @@ State machine per dedup_key (table alert_state):
   still true             -> nothing, unless repeat_interval elapsed -> send again
   gone (stateful rules)  -> resolved (+ optional "resolved" notification)
 Event rules (task_stuck, guardrail_hit, daily budget) fire once per key and never repeat.
+
+A send only counts once at least one of the rule's channels accepted it. Until then the
+row stays held=1 and every tick retries it (a channel skipped because its env var is
+unset counts as not delivered). A "resolved" notice due during quiet hours is kept
+(status=resolved, held=1) and sent after they end.
 """
 import datetime as _dt
 import hashlib
@@ -73,10 +78,53 @@ def load_rules(path):
 
 
 # --------------------------------------------------------------------------- quiet hours
+def _hhmm(v):
+    """'22:00' -> 1320 minutes. An int is taken as minutes since midnight, because YAML 1.1
+    (PyYAML) reads an unquoted 22:00 as the base-60 number 1320."""
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        return int(v) % 1440
+    h, _, m = str(v).strip().partition(":")
+    return (int(h) * 60 + int(m or 0)) % 1440
+
+
+def check_rules(doc):
+    """Problems that should be reported but must not stop the tick."""
+    warn = []
+    qh = (doc.get("defaults") or {}).get("quiet_hours")
+    if qh:
+        for k in ("start", "end"):
+            try:
+                _hhmm(qh.get(k, "00:00"))
+            except (TypeError, ValueError):
+                warn.append(f"quiet_hours.{k}={qh.get(k)!r} is not HH:MM; quiet hours are off")
+        if qh.get("tz") and ZoneInfo:
+            try:
+                ZoneInfo(qh["tz"])
+            except Exception:
+                warn.append(f"quiet_hours.tz={qh['tz']!r} is unknown; using UTC")
+    for r in doc["rules"]:
+        if r.get("kind") not in KINDS:
+            warn.append(f"rule {r.get('id')}: unknown kind {r.get('kind')!r}; rule skipped")
+        if r.get("kind") == "metric_threshold":
+            if r.get("metric") not in metrics.METRIC_INDEX:
+                warn.append(f"rule {r.get('id')}: unknown metric {r.get('metric')!r}; rule skipped")
+            if r.get("op", ">") not in OPS:
+                warn.append(f"rule {r.get('id')}: op must be one of {sorted(OPS)}; rule skipped")
+    return warn
+
+
 def in_quiet_hours(qh, now):
-    """qh = {start: '22:00', end: '07:00', tz: 'Asia/Bangkok', days: [mon, ...]}; window may wrap midnight."""
+    """qh = {start: '22:00', end: '07:00', tz: 'Asia/Bangkok', days: [mon, ...]}; window may wrap midnight.
+    A malformed window is treated as "not quiet" so alerts still go out."""
     if not qh:
         return False
+    try:
+        return _in_quiet(qh, now)
+    except (TypeError, ValueError):
+        return False
+
+
+def _in_quiet(qh, now):
     tz = _dt.timezone.utc
     if qh.get("tz") and ZoneInfo:
         try:
@@ -84,10 +132,8 @@ def in_quiet_hours(qh, now):
         except Exception:
             tz = _dt.timezone.utc
     t = _dt.datetime.fromtimestamp(now, tz)
-    days = [d.lower()[:3] for d in (qh.get("days") or [])]
-    s_h, s_m = map(int, str(qh.get("start", "22:00")).split(":"))
-    e_h, e_m = map(int, str(qh.get("end", "07:00")).split(":"))
-    cur, start, end = t.hour * 60 + t.minute, s_h * 60 + s_m, e_h * 60 + e_m
+    days = [str(d).lower()[:3] for d in (qh.get("days") or [])]
+    cur, start, end = t.hour * 60 + t.minute, _hhmm(qh.get("start", "22:00")), _hhmm(qh.get("end", "07:00"))
     if start <= end:
         inside = start <= cur < end
         day = t
@@ -109,16 +155,23 @@ def _alert(rule, key_parts, project, summary, details, task_id=None, session_id=
                 if project else "orch-dashboard --json")}
 
 
-def evaluate(conn, doc, now=None, cfg=None):
+def evaluate(conn, doc, now=None, cfg=None, errors=None):
+    """Evaluate every enabled rule. One broken rule never stops the others: its error is
+    appended to `errors` (when given) and the rule is skipped for this tick."""
     now = now or time.time()
     out = []
     for rule in doc["rules"]:
         if rule.get("enabled", True) is False:
             continue
-        fn = KINDS.get(rule["kind"])
-        if fn is None:
-            raise ValueError(f"unknown alert kind {rule['kind']!r} in rule {rule['id']}")
-        out.extend(fn(conn, rule, now, cfg or {}))
+        try:
+            fn = KINDS.get(rule["kind"])
+            if fn is None:
+                raise ValueError(f"unknown alert kind {rule['kind']!r}")
+            out.extend(fn(conn, rule, now, cfg or {}))
+        except Exception as e:  # noqa: BLE001 - a bad rule must not silence the rest
+            if errors is None:
+                raise
+            errors.append({"rule": rule.get("id"), "error": f"{type(e).__name__}: {e}"})
     return out
 
 
@@ -153,7 +206,8 @@ def k_guardrail_hit(conn, rule, now, cfg):
         args.append(rule["project"])
     out = []
     for h in conn.execute(q, args):
-        out.append(_alert(rule, [h["id"]], h["project"],
+        # line_hash+guardrail is stable across retention; the integer id can be reused
+        out.append(_alert(rule, [(h["line_hash"] or str(h["id"]))[:16], h["guardrail"]], h["project"],
                           f"Guardrail {h['guardrail']} hit on {h['task_id'] or 'unattributed task'} in {h['project']}",
                           {"guardrail": h["guardrail"], "reason": h["reason"], "dispatch": h["dispatch_id"],
                            "at": h["ts"]}, task_id=h["task_id"], session_id=h["session_id"]))
@@ -211,13 +265,13 @@ def k_metric_threshold(conn, rule, now, cfg):
         m = res["metrics"][name]
         if m["value"] is None or not m["sufficient"]:
             continue
-        hit = {">": m["value"] > val, ">=": m["value"] >= val, "<": m["value"] < val, "<=": m["value"] <= val}[op]
-        if hit:
+        if OPS[op](m["value"], val):
             out.append(_alert(rule, [p or "*"], p, f"{metrics.METRIC_INDEX[name][1]} is {m['value']}{m['unit']} ({op} {val})",
                               {"metric": name, **m}))
     return out
 
 
+OPS = {">": lambda a, b: a > b, ">=": lambda a, b: a >= b, "<": lambda a, b: a < b, "<=": lambda a, b: a <= b}
 KINDS = {"task_stuck": k_task_stuck, "guardrail_hit": k_guardrail_hit, "cost_over_budget": k_cost_over_budget,
          "advisor_fix_rate": k_advisor_fix_rate, "no_events": k_no_events, "metric_threshold": k_metric_threshold}
 
@@ -278,14 +332,20 @@ def http_post(url, body, headers=None, timeout=5):
 
 
 def deliver(ch, ps, sender=http_post):
-    """Send to one channel. Returns (ok, error). Secrets are read from env vars named in config."""
+    """Send to one channel. Returns (ok, error) and never raises. Secrets are read from env vars named in config."""
     t = ch.get("type")
-    body = format_for(t, ps)
+    try:
+        body = format_for(t, ps)
+    except Exception as e:  # noqa: BLE001 - unknown type or malformed payload
+        return False, f"{type(e).__name__}: {e}"
     if t == "file":
         path = os.path.expanduser(ch.get("path") or "~/.claude/agent-dashboard/alerts.log")
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "a", encoding="utf-8") as f:
-            f.write(json.dumps({"ts": time.time(), **body} if isinstance(body, dict) else body) + "\n")
+        try:
+            os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"ts": time.time(), **body} if isinstance(body, dict) else body) + "\n")
+        except OSError as e:  # a bad path must not abort the tick
+            return False, f"{type(e).__name__}: {e}"
         return True, None
     headers = dict(ch.get("headers") or {})
     if t == "line":
@@ -351,15 +411,20 @@ def process(conn, doc, alerts, now=None, sender=http_post, dry_run=False):
         if send:
             queue(a, "firing", row, rule)
             actions.append({"dedup_key": a["dedup_key"], "action": "send"})
+        if send:
+            held = 1  # pending until a channel accepts it (see delivery below)
         if not dry_run:
             conn.execute(
                 "INSERT INTO alert_state(dedup_key,rule_id,severity,project,task_id,status,first_seen,last_seen,last_sent,send_count,held,payload) "
                 "VALUES (?,?,?,?,?, 'firing',?,?,?,?,?,?) ON CONFLICT(dedup_key) DO UPDATE SET status='firing', "
-                "first_seen=excluded.first_seen, last_seen=excluded.last_seen, last_sent=excluded.last_sent, "
-                "send_count=excluded.send_count, held=excluded.held, payload=excluded.payload",
+                "first_seen=excluded.first_seen, last_seen=excluded.last_seen, held=excluded.held, payload=excluded.payload",
                 (a["dedup_key"], a["rule"], a["severity"], a.get("project"), a.get("task_id"), row["first_seen"], now,
-                 now if send else row.get("last_sent"), (row.get("send_count") or 0) + (1 if send else 0), held,
-                 json.dumps(a, default=str)))
+                 row.get("last_sent"), row.get("send_count") or 0, held, json.dumps(a, default=str)))
+
+    def queue_resolved(row, rule):
+        a = json.loads(row["payload"])
+        a["summary"] = "Resolved: " + a["summary"]
+        queue(a, "resolved", row, rule)
 
     # resolve stateful alerts whose condition has cleared
     for row in conn.execute("SELECT * FROM alert_state WHERE status='firing'").fetchall():
@@ -367,24 +432,44 @@ def process(conn, doc, alerts, now=None, sender=http_post, dry_run=False):
         rule = rules.get(row["rule_id"])
         if row["dedup_key"] in seen or not rule or rule["kind"] not in STATEFUL:
             continue
-        if rule.get("notify_resolved") and row["send_count"] and not quiet:
-            a = json.loads(row["payload"])
-            a["summary"] = "Resolved: " + a["summary"]
-            queue(a, "resolved", row, rule)
-        actions.append({"dedup_key": row["dedup_key"], "action": "resolved"})
+        notify = bool(rule.get("notify_resolved") and row["send_count"])
+        if notify and not quiet:
+            queue_resolved(row, rule)
+        actions.append({"dedup_key": row["dedup_key"], "action": "resolved" + ("_held_quiet_hours" if notify and quiet else "")})
         if not dry_run:
-            conn.execute("UPDATE alert_state SET status='resolved', held=0, last_seen=? WHERE dedup_key=?",
-                         (now, row["dedup_key"]))
+            # held=1 on a resolved row = a "resolved" notice still owed (quiet hours, or delivery pending)
+            conn.execute("UPDATE alert_state SET status='resolved', held=?, last_seen=? WHERE dedup_key=?",
+                         (1 if notify else 0, now, row["dedup_key"]))
+
+    # "resolved" notices owed from earlier ticks (held in quiet hours, or failed delivery)
+    if not quiet:
+        for row in conn.execute("SELECT * FROM alert_state WHERE status='resolved' AND held=1").fetchall():
+            row = dict(row)
+            rule = rules.get(row["rule_id"])
+            if row["dedup_key"] in seen or any(k == row["dedup_key"] for items in outbox.values() for k, _ in items):
+                continue
+            if rule and rule.get("notify_resolved"):
+                queue_resolved(row, rule)
+                actions.append({"dedup_key": row["dedup_key"], "action": "resolved_released"})
+            elif not dry_run:
+                conn.execute("UPDATE alert_state SET held=0 WHERE dedup_key=?", (row["dedup_key"],))
+    if not dry_run:
+        conn.commit()
 
     # deliver: many alerts for one channel in one run become a single digest message
     maxn = int(d.get("max_per_channel_per_run", 5))
     results = []
+    delivered = {}       # (dedup_key, status) -> True if any channel accepted it
+    errors = {}
     for chn, items in outbox.items():
         ch = doc["channels"].get(chn)
+        ps = [p for _, p in items]
         if ch is None:
             results.append({"channel": chn, "ok": False, "error": "unknown channel"})
+            for p in ps:
+                delivered.setdefault((p["dedup_key"], p["status"]), False)
+                errors[p["dedup_key"]] = f"unknown channel {chn}"
             continue
-        ps = [p for _, p in items]
         batches = [ps] if len(ps) > maxn else [[p] for p in ps]
         for batch in batches:
             if dry_run:
@@ -393,17 +478,33 @@ def process(conn, doc, alerts, now=None, sender=http_post, dry_run=False):
             ok, err = deliver(ch, batch, sender)
             results.append({"channel": chn, "ok": ok, "error": err, "alerts": len(batch)})
             for p in batch:
+                k = (p["dedup_key"], p["status"])
+                delivered[k] = delivered.get(k, False) or ok
+                if not ok:
+                    errors[p["dedup_key"]] = err
                 conn.execute("INSERT INTO alert_log(ts,dedup_key,channel,status,ok,error) VALUES (?,?,?,?,?,?)",
                              (now, p["dedup_key"], chn, p["status"], int(ok), err))
-                if not ok and err and not err.startswith("skipped"):
-                    # failed delivery: keep it held so the next tick retries
-                    conn.execute("UPDATE alert_state SET held=1, last_error=? WHERE dedup_key=?", (err, p["dedup_key"]))
+            conn.commit()  # record each delivery at once, so a later failure cannot cause a re-send
+
     if not dry_run:
+        for (key, status), ok in delivered.items():
+            if status == "firing" and ok:
+                conn.execute("UPDATE alert_state SET last_sent=?, send_count=COALESCE(send_count,0)+1, held=0, "
+                             "last_error=NULL WHERE dedup_key=? AND status='firing'", (now, key))
+            elif status == "resolved" and ok:
+                conn.execute("UPDATE alert_state SET held=0, last_error=NULL WHERE dedup_key=? AND status='resolved'", (key,))
+            else:
+                # nothing accepted it: keep held so the next tick retries
+                conn.execute("UPDATE alert_state SET held=1, last_error=? WHERE dedup_key=?", (errors.get(key), key))
         conn.commit()
     return {"quiet_hours": quiet, "evaluated": len(alerts), "actions": actions, "deliveries": results}
 
 
 def run(conn, rules_path, cfg=None, now=None, sender=http_post, dry_run=False):
     doc = load_rules(rules_path)
-    alerts = evaluate(conn, doc, now, cfg)
-    return process(conn, doc, alerts, now=now, sender=sender, dry_run=dry_run)
+    errors = []
+    alerts = evaluate(conn, doc, now, cfg, errors=errors)
+    out = process(conn, doc, alerts, now=now, sender=sender, dry_run=dry_run)
+    out["rule_errors"] = errors
+    out["warnings"] = check_rules(doc)
+    return out

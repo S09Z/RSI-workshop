@@ -32,7 +32,7 @@ metrics, the alerts and the snapshot. Because its OTel input is plain OTLP, anyo
 optional collector (`otelcol.example.yaml`) at Langfuse, Phoenix or Tempo as well, for trace browsing.
 
 **Consequences.** + Zero services and zero dependencies; it runs offline; one metric definition.
-+ The v1 hook, `events.jsonl` and UI are kept. − We maintain about 2,800 lines of Python (package + hook, measured with `wc -l`), plus about 1,000 lines of tests and fixture. − No
++ The v1 hook, `events.jsonl` and UI are kept. − We maintain about 3,100 lines of Python (package + hook, measured with `wc -l`), plus about 1,250 lines of tests and fixture. − No
 trace-waterfall UI; use Phoenix or Langfuse through the collector if that is needed.
 
 ---
@@ -93,7 +93,7 @@ Messaging API instead (R5).
 retention once a day. Alerts go directly to Slack incoming webhooks, Discord execute-webhook, the LINE
 Messaging API push endpoint, a generic HTTP POST, or a file. Dedup, repeat interval, grouping into a
 digest and quiet hours follow Alertmanager's concepts (`group_wait`/`group_interval`/`repeat_interval`,
-`time_intervals` for muting), implemented in `alerts.py` (409 lines including rules and transports).
+`time_intervals` for muting), implemented in `alerts.py` (510 lines including rules and transports). A send counts only once a channel accepts it; until then the alert stays held and is retried on the next tick.
 
 **Consequences.** + Nothing to keep running for alerts, and a failed tick is retried 5 minutes later.
 + The file channel works offline. − Alert latency is up to 5 minutes (configurable). − LINE needs a LINE

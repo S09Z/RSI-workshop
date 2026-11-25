@@ -33,7 +33,7 @@ def _parser():
     p.add_argument("--spec", action="store_true")
     p.add_argument("--ingest", action="store_true")
     p.add_argument("--alerts", action="store_true")
-    p.add_argument("--dry-run", action="store_true", help="with --alerts/--tick: print, do not send or record")
+    p.add_argument("--dry-run", action="store_true", help="with --alerts/--tick: print only; works on an in-memory copy, nothing is sent or written")
     p.add_argument("--tick", action="store_true")
     p.add_argument("--retention", action="store_true")
     p.add_argument("--otlp", action="store_true")
@@ -73,6 +73,15 @@ def main(argv=None):
         return 0
 
     conn = store.connect(paths["db"])
+    if a.dry_run:
+        # Work on an in-memory copy so a dry run never writes: no ingest offsets, rollups,
+        # alert state or retention deletes reach the real database.
+        import sqlite3
+        mem = sqlite3.connect(":memory:")
+        mem.row_factory = sqlite3.Row
+        conn.backup(mem)
+        conn.close()
+        conn = mem
     now = a.now or time.time()
     since, until = server.parse_since(a.since, now), server.parse_since(a.until, now)
     quiet_ingest = a.json or a.report or a.trends or a.spec
@@ -98,7 +107,7 @@ def main(argv=None):
         out = {"ingest": do_ingest()}
         out["alerts"] = alerts.run(conn, paths["alerts"], cfg, now=now, dry_run=a.dry_run)
         if a.tick:
-            out["retention"] = retention.maybe_daily(conn, cfg, now=now)
+            out["retention"] = ({"skipped": "dry run"} if a.dry_run else retention.maybe_daily(conn, cfg, now=now))
         print(json.dumps(out, indent=2, ensure_ascii=False, default=str))
         return 0
     if quiet_ingest or a.snapshot is not None:

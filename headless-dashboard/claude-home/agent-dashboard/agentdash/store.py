@@ -147,6 +147,12 @@ CREATE TABLE IF NOT EXISTS alert_log (
 );
 CREATE INDEX IF NOT EXISTS ix_alert_log_ts ON alert_log(ts);
 """),
+    (3, "rollup dirty days", """
+-- UTC days that received new data since their daily_aggregates were written
+CREATE TABLE IF NOT EXISTS rollup_dirty (day TEXT PRIMARY KEY, marked_at REAL);
+-- last value of each cumulative OTLP sum series, so points can be stored as deltas
+CREATE TABLE IF NOT EXISTS otel_cumulative (series TEXT PRIMARY KEY, last_ts REAL, last_value REAL);
+"""),
 ]
 
 SCHEMA_VERSION = MIGRATIONS[-1][0]

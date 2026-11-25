@@ -57,7 +57,7 @@ flowchart LR
 
 ## 3. Data model
 
-DDL: `agentdash/store.py` (migrations 1–2). Summary:
+DDL: `agentdash/store.py` (migrations 1–3). Summary:
 
 | Table | Grain | Key columns | Retention |
 |---|---|---|---|
@@ -71,9 +71,11 @@ DDL: `agentdash/store.py` (migrations 1–2). Summary:
 | `runs` | headless run start / result | run_id, cost_usd, duration_ms, is_error, prompt_len (prompt NULL by default) | 180 |
 | `otel_spans` | span | (trace_id, span_id), parent_span_id, name, session_id, tool_use_id, agent_id, tokens | 30 |
 | `otel_logs` | OTel event | rec_hash UNIQUE, name, session_id, prompt_id, agent_id, tool_use_id, cost_usd, tokens | 30 |
-| `otel_metric_points` | data point | rec_hash UNIQUE, name, session_id, type, value | 30 |
+| `otel_metric_points` | data point | rec_hash UNIQUE, name, session_id, type, value (cumulative sums are stored as deltas) | 30 |
+| `otel_cumulative` | cumulative series | series hash, last_ts, last_value | forever (one row per series) |
+| `rollup_dirty` | UTC day | day: got new data since its aggregates were written | until the next rollup |
 | `daily_aggregates` | day × project × metric | num, den, value | **forever** |
-| `alert_state` | dedup key | status, first_seen, last_seen, last_sent, send_count, held | resolved: 180 |
+| `alert_state` | dedup key | status, first_seen, last_seen, last_sent, send_count, held | resolved, or not seen and nothing owed: 180 |
 | `alert_log` | delivery attempt | channel, ok, error | 30 |
 
 Indexes are on every time column and on the join keys: `ix_raw_session`, `ix_disp_task`, `ix_disp_agent_id`,
@@ -256,7 +258,7 @@ read from `alerts.env` (mode 600) by `orch-dashboard-tick`.
 | Requirement | How |
 |---|---|
 | No content by default | The hook parses reports at capture time and writes only structured fields. `result_text` and the headless `prompt` are written only with `AGENT_DASHBOARD_LOG_CONTENT=1` / `privacy.store_result_text`. v1 lines that already contain `result_text` are parsed on ingest and the text is dropped. The OTLP receiver removes content attributes (`prompt`, `tool_input`, `response`, `user.email`, …) before writing, and the ingester stores only whitelisted columns. Claude Code's own content flags (`OTEL_LOG_USER_PROMPTS`, `OTEL_LOG_TOOL_DETAILS`, `OTEL_LOG_TOOL_CONTENT`) are left off. |
-| Redaction when content is enabled | built-in patterns (Anthropic/OpenAI/GitHub/AWS/Slack keys, private keys, JWTs, `password=…`, e-mail addresses) plus user regexes in `privacy.redact` |
+| Redaction when content is enabled | built-in patterns (Anthropic/OpenAI incl. `sk-proj-`, GitHub, AWS, Google, Slack keys, `Bearer`/`Basic` credentials, private keys, JWTs, `password=…` / `"api_key": "…"` / `MY_SECRET_KEY=…`, e-mail addresses) plus user regexes in `privacy.redact`. The hook applies them at capture to the text it always keeps (task descriptions, todo text, guardrail reasons); without the agentdash package it drops `result_text` instead of writing it |
 | Loopback only | Both servers refuse any host other than 127.0.0.1, localhost or ::1 (`test_refuses_non_loopback`) |
 | Fails open | The hook is `async: true`, wraps everything in try/except and always exits 0 (tested with garbage stdin and an unwritable directory). OTel export failures are silent in Claude Code. The receiver writes only a file. The ingester runs out of process. |
 | Opt-in logging | The hook is a no-op unless `AGENT_WORKFLOW=1`. OTel export is set only by `orch` / `orch-headless`, via `otel-env.sh`. |

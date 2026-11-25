@@ -28,7 +28,7 @@ orch-dashboard --snapshot                # one self-contained HTML file
 orch-dashboard --tick                    # ingest + alerts + retention (what the timer runs)
 orch-dashboard --otlp                    # OTLP/HTTP JSON receiver on 127.0.0.1:4318
 orch-dashboard --spec                    # metric definitions
-python3 -m unittest discover -s tests    # 47 tests on the recorded fixture
+python3 -m unittest discover -s tests    # 60 tests on the recorded fixture
 ```
 
 Configure alerts in `~/.claude/agent-dashboard/alerts.yaml`. Put webhook secrets in

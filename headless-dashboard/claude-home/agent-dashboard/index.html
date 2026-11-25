@@ -301,7 +301,7 @@ function renderQuality(v) {
     kpi("Tool failure rate", fmtMetric(m.tool_failure_pct), "non-Agent tool calls");
   const gs = Object.entries(v.guardrails.by_guardrail);
   const gmax = Math.max(1, ...gs.map(([, x]) => x.hits));
-  $("gbars").innerHTML = gs.map(([g, x]) => `<b>${g}</b><div class="track ${["G3","G4","G8"].includes(g) ? "crit" : ""}" title="${g}: ${x.hits} hit(s), ${x.per_task ?? "—"} per task"><div class="fill" style="width:${100 * x.hits / gmax}%"></div></div><span class="num">${x.hits}</span>`).join("");
+  $("gbars").innerHTML = gs.map(([g, x]) => `<b>${esc(g)}</b><div class="track ${["G3","G4","G8"].includes(g) ? "crit" : ""}" title="${esc(g)}: ${x.hits} hit(s), ${x.per_task ?? "—"} per task"><div class="fill" style="width:${100 * x.hits / gmax}%"></div></div><span class="num">${x.hits}</span>`).join("");
   const rd = Object.entries(v.advisor_rounds_distribution);
   const rmax = Math.max(1, ...rd.map(([, n]) => n));
   $("rounds").innerHTML = rd.map(([k, n]) => `<b>${k}</b><div class="track" title="${n} task(s) with ${k} advisor round(s)"><div class="fill" style="width:${100 * n / rmax}%;background:var(--advisor)"></div></div><span class="num">${n}</span>`).join("");

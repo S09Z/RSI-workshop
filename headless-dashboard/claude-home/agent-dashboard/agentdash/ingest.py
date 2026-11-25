@@ -183,8 +183,9 @@ class EventIngester:
         if cur.rowcount == 0:
             self.stats["dup"] += 1
             return
-        self.stats["new"] += 1
         self.apply(e, h)
+        mark_dirty(self.conn, ts)
+        self.stats["new"] += 1  # only once the line applied cleanly
 
     # -- event handlers
     def apply(self, e, h):
@@ -192,7 +193,7 @@ class EventIngester:
         if ev in ("run_result", "run_start"):
             return self._run(e, h)
         if ev == "guardrail_hit":
-            g = (e.get("guardrail") or "").upper()
+            g = e.get("guardrail")
             if g:
                 self._hit(e, h, g, "event", e.get("reason"))
             return
@@ -337,6 +338,10 @@ class EventIngester:
         return None, None
 
     def _hit(self, e, h, g, source, reason, dispatch_id=None):
+        g = parse.guardrail_name(g)
+        if not g:
+            self.stats["bad_guardrail"] = self.stats.get("bad_guardrail", 0) + 1
+            return
         task = parse.task_id(e.get("task_id") or "") or e.get("task_id")
         if dispatch_id:
             r = self.conn.execute("SELECT task_id FROM dispatches WHERE tool_use_id=?", (dispatch_id,)).fetchone()
@@ -347,7 +352,7 @@ class EventIngester:
         self.conn.execute(
             "INSERT OR IGNORE INTO guardrail_hits(line_hash,ts,project,session_id,task_id,dispatch_id,tool_use_id,guardrail,source,reason) "
             "VALUES (?,?,?,?,?,?,?,?,?,?)",
-            (h, e["ts"], e.get("project"), e.get("session_id"), task, dispatch_id, e.get("tool_use_id"), g.upper(),
+            (h, e["ts"], e.get("project"), e.get("session_id"), task, dispatch_id, e.get("tool_use_id"), g,
              source, _clip(reason, 300, self.pats)))
 
 
@@ -477,21 +482,43 @@ class OtelIngester:
              _int(a.get("input_tokens")), _int(a.get("output_tokens")), _int(a.get("cache_read_tokens")),
              _int(a.get("cache_creation_tokens")), _float(a.get("duration_ms")), _bool(a.get("success"))))
         self.stats["logs"] += cur.rowcount
+        if cur.rowcount:
+            mark_dirty(self.conn, ts)
+
+    def _delta(self, name, start, attrs, ts, val):
+        """Turn a cumulative sum point into the increase since the previous point of its series,
+        so SUM(value) is correct whatever temporality the exporter or collector used."""
+        if val is None:
+            return None
+        series = hashlib.sha1(json.dumps([name, start, attrs], sort_keys=True, default=str).encode()).hexdigest()
+        r = self.conn.execute("SELECT last_ts, last_value FROM otel_cumulative WHERE series=?", (series,)).fetchone()
+        if r and ts is not None and r[0] is not None and ts <= r[0]:
+            return 0.0  # replayed or out-of-order point: already counted
+        delta = val - r[1] if r and val >= r[1] else val  # a drop means the counter reset
+        self.conn.execute("INSERT OR REPLACE INTO otel_cumulative(series,last_ts,last_value) VALUES (?,?,?)",
+                          (series, ts, val))
+        return delta
 
     def _metric(self, m, ra):
         name = m.get("name")
         data = m.get("sum") or m.get("gauge") or {}
+        temp = data.get("aggregationTemporality") if m.get("sum") else None
+        cumulative = temp in (2, "2", "AGGREGATION_TEMPORALITY_CUMULATIVE")
         for dp in data.get("dataPoints") or []:
             a = dict(ra)
             a.update(_attrs(dp.get("attributes")))
             val = dp.get("asDouble", dp.get("asInt"))
             ts = _ns(dp.get("timeUnixNano"))
+            if cumulative:
+                val = self._delta(name, dp.get("startTimeUnixNano"), a, ts, _float(val))
             h = hashlib.sha1(json.dumps([name, ts, dp.get("startTimeUnixNano"), a, val], sort_keys=True,
                                         default=str).encode()).hexdigest()
             cur = self.conn.execute(
                 "INSERT OR IGNORE INTO otel_metric_points(rec_hash,ts,name,session_id,type,model,query_source,value) VALUES (?,?,?,?,?,?,?,?)",
                 (h, ts, name, _sid(a), a.get("type"), a.get("model"), a.get("query_source"), _float(val)))
             self.stats["points"] += cur.rowcount
+            if cur.rowcount:
+                mark_dirty(self.conn, ts)
 
 
 def join_otel(conn):
@@ -527,6 +554,29 @@ def join_otel(conn):
 
 
 # --------------------------------------------------------------------------- entry point
+def mark_dirty(conn, ts):
+    """Record that this UTC day got new data, so metrics.rollup recomputes it however old it is."""
+    if isinstance(ts, (int, float)):
+        day = time.strftime("%Y-%m-%d", time.gmtime(ts))
+        conn.execute("INSERT OR IGNORE INTO rollup_dirty(day, marked_at) VALUES (?, ?)", (day, time.time()))
+
+
+def _isolated(conn, fn, ln, stats):
+    """Apply one line inside a SAVEPOINT. A line that raises (wrong types, odd shapes) is
+    rolled back alone and counted as bad, so it cannot block the rest of the file forever."""
+    conn.execute("SAVEPOINT line")
+    try:
+        fn(ln)
+    except Exception as e:  # noqa: BLE001 - any bad line must be skipped, not retried forever
+        conn.execute("ROLLBACK TO line")
+        stats["bad"] += 1
+        stats.setdefault("errors", [])
+        if len(stats["errors"]) < 5:
+            stats["errors"].append(f"{type(e).__name__}: {e}"[:200])
+    finally:
+        conn.execute("RELEASE line")
+
+
 def run(conn, paths, cfg):
     """Ingest both sources once. Safe to call concurrently-ish: SQLite serialises writers."""
     report = {"events": None, "otel": None, "join": None, "notes": []}
@@ -535,7 +585,7 @@ def run(conn, paths, cfg):
     report["notes"] += notes
     with conn:
         for ln in lines:
-            ei.line(ln)
+            _isolated(conn, ei.line, ln, ei.stats)
         commit_offset(conn, state)
     report["events"] = ei.stats
     oi = OtelIngester(conn)
@@ -543,7 +593,7 @@ def run(conn, paths, cfg):
     report["notes"] += notes
     with conn:
         for ln in lines:
-            oi.line(ln)
+            _isolated(conn, oi.line, ln, oi.stats)
         commit_offset(conn, state)
         report["join"] = join_otel(conn)
     report["otel"] = oi.stats

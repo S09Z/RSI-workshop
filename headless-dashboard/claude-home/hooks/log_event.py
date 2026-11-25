@@ -7,6 +7,10 @@
 * Content-free by default: report text is parsed here into structured fields
   (STATUS, ATTEMPTS, CONFIDENCE, FROM MEMORY, guardrail markers) and then dropped.
   Set AGENT_DASHBOARD_LOG_CONTENT=1 to also keep redacted result_text (max 4000 chars).
+  The text that is always kept (task descriptions, todo text, guardrail reasons) is
+  redacted here too, with the built-in patterns plus privacy.redact from config.yaml.
+  If the agentdash package cannot be imported, result_text is dropped even with
+  LOG_CONTENT=1, because only a minimal fallback redaction is available.
 * Same field names as v1, so v1 consumers keep working; new fields: v, report, guardrails,
   error_class.
 
@@ -32,9 +36,34 @@ def _parser():
     try:
         sys.path.insert(0, _dash_dir())
         from agentdash import parse  # type: ignore
-        return parse
+
+        class _Full:
+            full = True
+            report = staticmethod(parse.report)
+            guardrails = staticmethod(parse.guardrails)
+            pats = None
+
+            @staticmethod
+            def redact(text, patterns=None):
+                if _Full.pats is None:
+                    extra = []
+                    try:
+                        from agentdash import config  # type: ignore
+                        extra = config.load(os.path.join(_dash_dir(), "config.yaml"))["privacy"].get("redact") or []
+                    except Exception:
+                        extra = []
+                    _Full.pats = parse.compile_redactions(extra)
+                return parse.redact(text, patterns or _Full.pats)
+        return _Full
     except Exception:
         class _P:
+            full = False  # minimal redaction only: callers must not keep long free text
+            REDACT = [re.compile(p) for p in (
+                r"sk-[A-Za-z0-9_\-]{20,}", r"gh[pousr]_[A-Za-z0-9]{20,}", r"AKIA[0-9A-Z]{16}",
+                r"(?i)\b(?:bearer|basic)\s+[A-Za-z0-9._~+/\-]{8,}=*",
+                r"(?i)[\w.-]*(?:passw(?:or)?d|pwd|secret|token(?!s)|api[_-]?key|access[_-]?key)[\w-]*"
+                r"[\"']?\s*[:=]\s*[\"']?[^\s\"',;}]+",
+                r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")]
             STATUS = re.compile(r"STATUS:\s*(WORKS|DOES_NOT_WORK|BLOCKED)", re.I)
 
             @staticmethod
@@ -48,6 +77,8 @@ def _parser():
 
             @staticmethod
             def redact(text, patterns=None):
+                for rx in _P.REDACT:
+                    text = rx.sub("[REDACTED]", text or "")
                 return text
         return _P
 
@@ -100,7 +131,7 @@ def build(data, keep_content, P):
     ti = data.get("tool_input") or {}
     if tool in ("Task", "Agent"):
         out["subagent_type"] = ti.get("subagent_type")
-        out["description"] = (ti.get("description") or "")[:200]
+        out["description"] = P.redact((ti.get("description") or "")[:400])[:200]
         if ev in ("PostToolUse", "PostToolUseFailure"):
             resp = data.get("tool_response")
             text = _text(resp) or _text(data.get("error"))
@@ -109,10 +140,13 @@ def build(data, keep_content, P):
             out["duration_ms"] = _num(resp, "totalDurationMs", "duration_ms") or data.get("duration_ms")
             out["tokens"] = _num(resp, "totalTokens", "total_tokens")
             out["tool_uses"] = _num(resp, "totalToolUseCount")
-            if keep_content:
+            if keep_content and getattr(P, "full", False):
                 out["result_text"] = P.redact(text)[-MAX_TEXT:]
+            elif keep_content:
+                out["result_text_dropped"] = "parser_unavailable"
     elif tool == "TodoWrite":
-        out["todos"] = [{"content": (t.get("content") or "")[:200], "status": t.get("status")} for t in ti.get("todos", [])]
+        out["todos"] = [{"content": P.redact(str(t.get("content") or "")[:400])[:200], "status": t.get("status")}
+                        for t in (ti.get("todos") or []) if isinstance(t, dict)]
     elif tool in ("TaskCreate", "TaskUpdate"):
         out["task"] = {k: ti.get(k) for k in ("taskId", "subject", "status") if k in ti}
         resp = data.get("tool_response")
@@ -131,14 +165,17 @@ def build(data, keep_content, P):
         g = P.guardrails(text)
         if g:
             out["guardrails"] = g
-        if keep_content and text:
+        if keep_content and text and getattr(P, "full", False):
             out["result_text"] = P.redact(text)[-MAX_TEXT:]
+        elif keep_content and text:
+            out["result_text_dropped"] = "parser_unavailable"
     return out
 
 
-def guardrail_event(argv, data):
+def guardrail_event(argv, data, P=None):
     g = argv[argv.index("--guardrail") + 1].upper()
     reason = argv[argv.index("--reason") + 1] if "--reason" in argv else ""
+    reason = (P or _parser()).redact(reason[:600])
     cwd = data.get("cwd") or os.getcwd()
     return {"v": 2, "ts": time.time(), "event": "guardrail_hit", "guardrail": g, "reason": reason[:300],
             "project": os.path.basename(cwd.rstrip("/")) or cwd, "cwd": cwd, "session_id": data.get("session_id"),
@@ -159,7 +196,7 @@ def main(argv):
             except ValueError:
                 data = {}
     if "--guardrail" in argv:
-        _append(guardrail_event(argv, data))
+        _append(guardrail_event(argv, data, _parser()))
         return
     keep = os.environ.get("AGENT_DASHBOARD_LOG_CONTENT") == "1"
     _append(build(data, keep, _parser()))

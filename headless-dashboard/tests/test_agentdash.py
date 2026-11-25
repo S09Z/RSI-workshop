@@ -692,6 +692,261 @@ rules:
         self.assertEqual(doc["rules"][0], {"id": "one", "kind": "k", "list": ["x", "y"]})
         self.assertEqual(doc["rules"][1]["m"], {"k": "v"})
 
+class TestReviewFixes(Base):
+    """Regression tests for the 2026-11-25 code review (findings 1-10)."""
+
+    def setUp(self):
+        self.conn, self.paths = self.fresh()
+        self.sent = []
+
+    def sender(self, url, body, headers):
+        self.sent.append((url, body, headers))
+        return 200
+
+    def append(self, *events):
+        with open(self.paths["events"], "a") as f:
+            for e in events:
+                f.write((e if isinstance(e, str) else json.dumps(e)) + "\n")
+        return ingest.run(self.conn, self.paths, cfg())
+
+    # 1
+    def test_bad_guardrail_name_does_not_break_metrics(self):
+        r = self.append({"ts": self.NOW - 60, "event": "guardrail_hit", "guardrail": "GX", "project": "shop-api"},
+                        {"ts": self.NOW - 50, "event": "guardrail_hit", "guardrail": "G3a", "project": "shop-api"},
+                        {"ts": self.NOW - 40, "event": "guardrail_hit", "guardrail": "g03", "project": "shop-api"})
+        self.assertEqual(r["events"]["bad_guardrail"], 2)
+        # an old row with a bad name (written before this fix) must not crash the sort either
+        self.conn.execute("INSERT INTO guardrail_hits(line_hash,ts,project,guardrail,source) VALUES ('x',?,'p','GX','event')",
+                          (self.NOW - 30,))
+        res = metrics.compute(self.conn, since=0, now=self.NOW)
+        self.assertEqual(res["guardrails"]["by_guardrail"]["G3"]["hits"], self.exp["guardrail_hits"]["G3"] + 1)
+        self.assertEqual(list(res["guardrails"]["by_guardrail"])[-1], "GX")
+        self.assertEqual(parse.guardrail_name(" g8 "), "G8")
+        self.assertIsNone(parse.guardrail_name(3))
+
+    # 2
+    def test_dry_run_tick_writes_nothing(self):
+        from agentdash import cli
+        self.append({"ts": self.NOW - 40 * 86400, "event": "PostToolUse", "tool": "Bash", "project": "old"})
+        with open(self.paths["events"], "a") as f:
+            f.write(json.dumps({"ts": self.NOW - 10, "event": "PostToolUse", "tool": "Read", "project": "new"}) + "\n")
+
+        def snap():
+            c = sqlite3.connect(self.paths["db"])
+            out = {t: c.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] for t in
+                   ("raw_events", "daily_aggregates", "alert_state", "alert_log", "ingest_state", "rollup_dirty")}
+            out["offsets"] = c.execute("SELECT * FROM ingest_state ORDER BY source").fetchall()
+            c.close()
+            return out
+        before = snap()
+        buf, old = io.StringIO(), sys.stdout
+        sys.stdout = buf
+        try:
+            rc = cli.main(["--dir", self.paths["dir"], "--db", self.paths["db"], "--now", str(self.NOW),
+                           "--tick", "--dry-run", "--rules", "/nonexistent.yaml"])
+        finally:
+            sys.stdout = old
+        self.assertEqual(rc, 0)
+        out = json.loads(buf.getvalue())
+        self.assertEqual(out["retention"], {"skipped": "dry run"})
+        self.assertEqual(out["ingest"]["events"]["new"], 1)   # it did read the new line, in memory
+        self.assertEqual(snap(), before)
+
+    # 3
+    def test_broken_file_channel_and_bad_rule_do_not_stop_the_tick(self):
+        bad = os.path.join(self.tmp, "not-a-dir")
+        open(bad, "w").close()
+        doc = {"version": 1, "defaults": {"max_per_channel_per_run": 50},
+               "channels": {"hook": {"type": "webhook", "url": "http://example.invalid/h"},
+                            "log": {"type": "file", "path": os.path.join(bad, "x.log")}},
+               "rules": [{"id": "nope", "kind": "no_such_kind"},
+                         {"id": "m", "kind": "metric_threshold", "metric": "no_such_metric", "value": 1},
+                         {"id": "budget", "kind": "cost_over_budget", "budget_usd": 0.01, "severity": "high",
+                          "channels": ["hook", "log"]}]}
+        ok, err = alerts.deliver(doc["channels"]["log"], [{"x": 1}])
+        self.assertFalse(ok)
+        self.assertIn("Error", err)
+        now = self.exp["base"] + 21 * 86400 + 20 * 3600
+        errors = []
+        found = alerts.evaluate(self.conn, doc, now, errors=errors)
+        self.assertEqual([e["rule"] for e in errors], ["nope", "m"])
+        self.assertEqual(len(found), 1)
+        alerts.process(self.conn, doc, found, now=now, sender=self.sender)
+        self.assertEqual(len(self.sent), 1)
+        row = self.conn.execute("SELECT send_count, held FROM alert_state WHERE rule_id='budget'").fetchone()
+        self.assertEqual(tuple(row), (1, 0))          # delivered on the webhook, so not re-sent
+        alerts.process(self.conn, doc, alerts.evaluate(self.conn, doc, now + 300, errors=[]), now=now + 300, sender=self.sender)
+        self.assertEqual(len(self.sent), 1)
+        self.assertEqual(alerts.check_rules(doc)[:2], ["rule nope: unknown kind 'no_such_kind'; rule skipped",
+                                                       "rule m: unknown metric 'no_such_metric'; rule skipped"])
+
+    # 4
+    def test_redaction_covers_common_secret_shapes(self):
+        for secret in ['{"password": "hunter2"}', '{"api_key":"abc123"}', 'MY_SECRET_KEY=abc',
+                       'AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI', 'Authorization: Bearer abcdefghijklmnop',
+                       'sk-proj-abcdefghij_klmnopqrstuv-wxyz', 'AIza' + 'A' * 35]:
+            out = parse.redact(secret)
+            self.assertIn("[REDACTED]", out, secret)
+            for leak in ("hunter2", "abc123", "wJalr", "abcdefghijklmnop", "klmnop", "AAAA"):
+                self.assertNotIn(leak, out, secret)
+        self.assertEqual(parse.redact("input_tokens=500 tokens: 12"), "input_tokens=500 tokens: 12")
+
+    # 5
+    def test_hook_redacts_kept_text_and_drops_text_without_parser(self):
+        h = TestHook("test_noop_without_env")
+        h.tmp = self.tmp
+        post = json.loads(TestHook.POST)
+        post["tool_input"]["description"] = "[T1] rotate api_key=sk-abc123SECRETabc123SECRET"
+        post["tool_response"]["content"][0]["text"] += "\napi_key=sk-abc123SECRET"
+        # parser available: description redacted at capture
+        r, ev = h._run(json.dumps(post), {"AGENT_WORKFLOW": "1"})
+        self.assertNotIn("SECRET", ev[0]["description"])
+        # parser not importable + LOG_CONTENT=1: result_text is dropped, not written raw
+        r, ev = h._run(json.dumps(post), {"AGENT_WORKFLOW": "1", "AGENT_DASHBOARD_LOG_CONTENT": "1", "PYTHONPATH": ""})
+        self.assertEqual(r.returncode, 0)
+        self.assertNotIn("result_text", ev[0])
+        self.assertEqual(ev[0]["result_text_dropped"], "parser_unavailable")
+        self.assertNotIn("SECRET", json.dumps(ev[0]))
+        r, ev = h._run("{}", {"AGENT_WORKFLOW": "1"}, ["--guardrail", "G3", "--reason", "token=abcdef123"])
+        self.assertNotIn("abcdef123", ev[0]["reason"])
+
+    # 6
+    def test_install_keeps_user_hooks(self):
+        home = tempfile.mkdtemp(dir=self.tmp)
+        ch = os.path.join(home, "claude")
+        os.makedirs(ch)
+        user = {"model": "x", "hooks": {"PostToolUse": [
+            {"matcher": "*", "hooks": [{"type": "command", "command": 'python3 "$HOME/.claude/hooks/log_event.py"'},
+                                       {"type": "command", "command": "my-audit-logger --keep"}]},
+            {"matcher": "Bash", "hooks": [{"type": "command", "command": "/usr/local/bin/my_log_event.py"}]},
+            {"matcher": "Edit", "hooks": [{"type": "command",
+                                           "command": "python3 ~/.claude/hooks/log_event.py --guardrail G3 --reason x"}]}]}}
+        sp = os.path.join(ch, "settings.json")
+        with open(sp, "w") as f:
+            json.dump(user, f)
+        env = {**os.environ, "CLAUDE_HOME": ch, "BIN_DIR": os.path.join(home, "bin"), "SERVICE_HOME": home}
+
+        def install(*a):
+            r = subprocess.run(["bash", os.path.join(ROOT, "install.sh"), *a], env=env, capture_output=True, text=True,
+                               timeout=120)
+            self.assertEqual(r.returncode, 0, r.stderr)
+
+        def commands():
+            with open(sp) as f:
+                d = json.load(f)
+            return [h["command"] for g in d.get("hooks", {}).get("PostToolUse", []) for h in g["hooks"]]
+        install()
+        mine = ["my-audit-logger --keep", "/usr/local/bin/my_log_event.py",
+                "python3 ~/.claude/hooks/log_event.py --guardrail G3 --reason x"]
+        self.assertEqual(commands()[:3], mine)
+        self.assertEqual(len(commands()), 4)            # plus exactly one of ours
+        with open(sp) as f:
+            first = f.read()
+        install()
+        with open(sp) as f:
+            self.assertEqual(f.read(), first)           # idempotent
+        install("--uninstall")
+        self.assertEqual(commands(), mine)
+        with open(sp, "w") as f:
+            f.write("// comment\n{}")
+        r = subprocess.run(["bash", os.path.join(ROOT, "install.sh")], env=env, capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("not valid JSON", r.stderr)
+
+    # 7
+    def test_poison_line_is_skipped_not_retried(self):
+        r = self.append({"ts": self.NOW - 30, "event": "PostToolUse", "tool": "Bash", "session_id": {"a": 1}},
+                        {"ts": self.NOW - 20, "event": "PostToolUse", "tool": "Bash", "agent_type": 5, "project": "p"},
+                        {"ts": self.NOW - 10, "event": "PostToolUse", "tool": "Read", "project": "p", "session_id": "ok"})
+        self.assertEqual((r["events"]["new"], r["events"]["bad"]), (1, 2))
+        self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM raw_events WHERE session_id='ok'").fetchone()[0], 1)
+        self.assertEqual(ingest.run(self.conn, self.paths, cfg())["events"]["lines"], 0)
+
+    # 8
+    def test_skipped_channel_is_retried_and_guardrail_keys_survive_retention(self):
+        doc = {"version": 1, "defaults": {}, "channels": {"hook": {"type": "webhook", "url_env": "AGENTDASH_TEST_HOOK"}},
+               "rules": [{"id": "budget", "kind": "cost_over_budget", "budget_usd": 0.01, "severity": "high",
+                          "channels": ["hook"]}]}
+        now = self.exp["base"] + 21 * 86400 + 20 * 3600
+        os.environ.pop("AGENTDASH_TEST_HOOK", None)
+        r = alerts.process(self.conn, doc, alerts.evaluate(self.conn, doc, now), now=now, sender=self.sender)
+        self.assertTrue(r["deliveries"][0]["error"].startswith("skipped"))
+        os.environ["AGENTDASH_TEST_HOOK"] = "http://example.invalid/h"
+        try:
+            alerts.process(self.conn, doc, alerts.evaluate(self.conn, doc, now + 300), now=now + 300, sender=self.sender)
+        finally:
+            os.environ.pop("AGENTDASH_TEST_HOOK", None)
+        self.assertEqual(len(self.sent), 1)
+        # guardrail alert keys use line_hash, so a reused integer id cannot suppress a new hit
+        g = {"id": "g", "kind": "guardrail_hit", "guardrails": ["G3"], "lookback": "60d"}
+        keys = {a["dedup_key"] for a in alerts.k_guardrail_hit(self.conn, g, self.NOW, {})}
+        self.assertTrue(keys and all(len(k.split(":")) == 3 and k.endswith(":G3") for k in keys))
+
+    # 9
+    def test_late_events_recompute_an_old_day(self):
+        day_ts = self.exp["base"] + 86400 * 2 + 3600
+        day = __import__("time").strftime("%Y-%m-%d", __import__("time").gmtime(day_ts))
+        metrics.rollup(self.conn, now=self.NOW)
+        self.conn.execute("DELETE FROM rollup_dirty")
+        q = "SELECT num FROM daily_aggregates WHERE day=? AND project='*' AND metric='tool_failure_pct'"
+        before = self.conn.execute(q, (day,)).fetchone()
+        self.append({"ts": day_ts, "event": "PostToolUseFailure", "tool": "Bash", "project": "shop-api", "session_id": "late"})
+        self.assertIsNotNone(self.conn.execute("SELECT 1 FROM rollup_dirty WHERE day=?", (day,)).fetchone())
+        metrics.rollup(self.conn, now=self.NOW)
+        after = self.conn.execute(q, (day,)).fetchone()
+        self.assertEqual((after[0] or 0), (before[0] if before else 0) + 1)
+        self.assertIsNone(self.conn.execute("SELECT 1 FROM rollup_dirty WHERE day=?", (day,)).fetchone())
+
+    # 10
+    def test_from_memory_none_variants(self):
+        def fm(v):
+            return parse.report(f"FROM MEMORY: {v}\nCONFIDENCE: high\n", "advisor")["from_memory"]
+        for v in ("none", "none (no relevant lesson)", "None.", "n/a", "-", "**none**"):
+            self.assertEqual(fm(v), "none", v)
+        self.assertEqual(fm("[L12] retry flaky test"), "hit")
+        self.assertEqual(parse.report("FROM MEMORY:\nCONFIDENCE: high", "advisor")["from_memory"], "none")
+
+    def test_resolved_notice_waits_for_quiet_hours_to_end(self):
+        t0 = self.NOW
+        self.append({"ts": t0, "event": "run_start", "project": "shop-api", "run_id": "run-q"})
+        qh = {"start": "00:00", "end": "06:00", "tz": "UTC"}
+        doc = {"version": 1, "defaults": {"quiet_hours": qh}, "channels": {"hook": {"type": "webhook", "url": "http://x.invalid"}},
+               "rules": [{"id": "silent", "kind": "no_events", "minutes": 15, "severity": "critical",
+                          "notify_resolved": True, "channels": ["hook"]}]}
+        qh["allow_severity"] = ["critical"]
+        fire = t0 + 1200                                   # 00:20 UTC, quiet, but critical is allowed
+        alerts.process(self.conn, doc, alerts.evaluate(self.conn, doc, fire), now=fire, sender=self.sender)
+        self.assertEqual([b["status"] for _, b, _ in self.sent], ["firing"])
+        self.append({"ts": t0 + 1300, "event": "run_result", "project": "shop-api", "run_id": "run-q"})
+        quiet = t0 + 1400
+        alerts.process(self.conn, doc, alerts.evaluate(self.conn, doc, quiet), now=quiet, sender=self.sender)
+        self.assertEqual(len(self.sent), 1)                # resolved notice held
+        after = t0 + 7 * 3600
+        alerts.process(self.conn, doc, alerts.evaluate(self.conn, doc, after), now=after, sender=self.sender)
+        self.assertEqual([b["status"] for _, b, _ in self.sent], ["firing", "resolved"])
+        alerts.process(self.conn, doc, alerts.evaluate(self.conn, doc, after + 300), now=after + 300, sender=self.sender)
+        self.assertEqual(len(self.sent), 2)
+
+    def test_cumulative_metric_points_are_stored_as_deltas(self):
+        def pt(t, v):
+            return {"timeUnixNano": str(int(t * 1e9)), "startTimeUnixNano": "1", "asDouble": v,
+                    "attributes": [{"key": "session.id", "value": {"stringValue": "cum-1"}}]}
+        body = {"resourceMetrics": [{"scopeMetrics": [{"metrics": [{"name": "claude_code.cost.usage", "sum": {
+            "aggregationTemporality": 2, "isMonotonic": True,
+            "dataPoints": [pt(self.NOW - 30, 1.0), pt(self.NOW - 20, 1.5), pt(self.NOW - 10, 2.5)]}}]}]}]}
+        with open(self.paths["otel"], "a") as f:
+            f.write(json.dumps(body) + "\n")
+        ingest.run(self.conn, self.paths, cfg())
+        total = self.conn.execute("SELECT SUM(value) FROM otel_metric_points WHERE session_id='cum-1'").fetchone()[0]
+        self.assertAlmostEqual(total, 2.5)
+
+    def test_since_accepts_trailing_z_and_quiet_hours_accept_ints(self):
+        self.assertEqual(server.parse_since("2026-11-02T00:00:00Z"), 1793577600.0)
+        qh = {"start": 1320, "end": 420, "tz": "UTC"}      # PyYAML reads unquoted 22:00 as 1320
+        self.assertTrue(alerts.in_quiet_hours(qh, self.exp["base"] + 23 * 3600))
+        self.assertFalse(alerts.in_quiet_hours(qh, self.exp["base"] + 12 * 3600))
+        self.assertFalse(alerts.in_quiet_hours({"start": "bogus"}, self.NOW))
+
 
 if __name__ == "__main__":
     unittest.main()

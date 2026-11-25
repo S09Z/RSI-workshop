@@ -13,7 +13,10 @@ CLAUDE_HOME="${CLAUDE_HOME:-$HOME/.claude}"
 BIN_DIR="${BIN_DIR:-$HOME/.local/bin}"
 DASH="$CLAUDE_HOME/agent-dashboard"
 SETTINGS="$CLAUDE_HOME/settings.json"
-MARK="log_event.py"   # recognises our hook entries when merging/removing
+# Our hook entries are the exact commands in claude-home/settings.hooks.json, or a bare
+# `python3 <...>/.claude/hooks/log_event.py` with no arguments (older installs). Anything
+# else, including a user's own `log_event.py --guardrail ...` hook, is left alone.
+MARK='^python3\s+["'"'"']?(\$HOME|\$\{HOME\}|~|/[^"'"'"']*)/\.claude/hooks/log_event\.py["'"'"']?\s*$' 
 SERVICE_HOME="${SERVICE_HOME:-$HOME}"
 
 uninstall=false; services=false; dry=false
@@ -28,6 +31,12 @@ done
 run() { if $dry; then echo "[dry-run] $*"; else "$@"; fi; }
 
 command -v python3 >/dev/null || { echo "python3 is required"; exit 1; }
+
+# Check settings.json parses before changing anything (it must be plain JSON, no comments).
+if [ -s "$SETTINGS" ] && ! python3 -c 'import json,sys; json.load(open(sys.argv[1], encoding="utf-8"))' "$SETTINGS" 2>/dev/null; then
+  echo "error: $SETTINGS is not valid JSON (comments are not allowed). Fix it and re-run; nothing was changed." >&2
+  exit 1
+fi
 python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' || { echo "python3 >= 3.10 is required"; exit 1; }
 
 OS="$(uname -s)"
@@ -108,8 +117,8 @@ if $dry; then
   echo "[dry-run] merge hook entries from claude-home/settings.hooks.json into $SETTINGS"
 else
 python3 - "$SETTINGS" "$SRC/claude-home/settings.hooks.json" "$uninstall" "$MARK" <<'PY'
-import json, os, sys, shutil, time
-settings_path, hooks_path, uninstall, mark = sys.argv[1], sys.argv[2], sys.argv[3] == "true", sys.argv[4]
+import json, os, re, sys, shutil, tempfile, time
+settings_path, hooks_path, uninstall, mark = sys.argv[1], sys.argv[2], sys.argv[3] == "true", re.compile(sys.argv[4])
 data = {}
 if os.path.exists(settings_path):
     with open(settings_path, encoding="utf-8") as f:
@@ -119,11 +128,21 @@ if os.path.exists(settings_path):
 ours = json.load(open(hooks_path, encoding="utf-8"))["hooks"]
 hooks = data.setdefault("hooks", {})
 
-def is_ours(group):
-    return any(mark in (h.get("command") or "") for h in group.get("hooks", []))
+exact = {h.get("command") for groups in ours.values() for g in groups for h in g.get("hooks", [])}
 
+def is_ours(h):
+    c = (h.get("command") or "").strip()
+    return c in exact or bool(mark.match(c))
+
+# remove only our hook objects; a group is dropped only when nothing of the user's is left in it
 for event in list(hooks.keys()):
-    hooks[event] = [g for g in hooks[event] if not is_ours(g)]
+    kept = []
+    for g in hooks[event]:
+        hs = g.get("hooks", [])
+        rest = [h for h in hs if not is_ours(h)]
+        if rest or not hs:
+            kept.append({**g, "hooks": rest} if len(rest) != len(hs) else g)
+    hooks[event] = kept
     if not hooks[event]:
         del hooks[event]
 if not uninstall:
@@ -131,10 +150,15 @@ if not uninstall:
         hooks.setdefault(event, []).extend(groups)
 if not hooks:
     data.pop("hooks", None)
-os.makedirs(os.path.dirname(settings_path), exist_ok=True)
-with open(settings_path, "w", encoding="utf-8") as f:
+d = os.path.dirname(settings_path) or "."
+os.makedirs(d, exist_ok=True)
+fd, tmp = tempfile.mkstemp(dir=d, prefix=".settings.", suffix=".tmp")
+with os.fdopen(fd, "w", encoding="utf-8") as f:   # write a temp file, then rename: never a half-written settings.json
     json.dump(data, f, indent=2, ensure_ascii=False)
     f.write("\n")
+if os.path.exists(settings_path):
+    shutil.copymode(settings_path, tmp)
+os.replace(tmp, settings_path)
 print(("Removed" if uninstall else "Merged") + " hook entries in", settings_path)
 PY
 fi

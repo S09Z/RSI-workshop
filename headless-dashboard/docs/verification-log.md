@@ -237,3 +237,43 @@ contains no `<script src` and no `https://`). It was opened from a plain static 
 was reachable. It rendered fully from the inlined data.
 
 ![static snapshot](screenshots/static-snapshot.png)
+
+## 5. Review fixes (2026-11-25)
+
+A code review of `db036c2` found 10 issues. All are fixed. Each has a regression test in
+`TestReviewFixes`:
+
+| # | Issue | Test |
+|---|---|---|
+| 1 | A guardrail name like `GX` crashed every metrics call, tick and API response | `test_bad_guardrail_name_does_not_break_metrics` |
+| 2 | `--tick --dry-run` ran retention and wrote rollups | `test_dry_run_tick_writes_nothing` |
+| 3 | A broken file channel or a bad rule aborted the tick and caused webhooks to be sent again | `test_broken_file_channel_and_bad_rule_do_not_stop_the_tick` |
+| 4 | Redaction missed JSON keys, `sk-proj-` keys, Bearer tokens and `*_SECRET_*` names | `test_redaction_covers_common_secret_shapes` |
+| 5 | The hook wrote unredacted text when the package was missing; descriptions, todos and reasons were not redacted at capture | `test_hook_redacts_kept_text_and_drops_text_without_parser` |
+| 6 | `install.sh` removed user hooks that contained `log_event.py`; the write was not atomic; JSON with comments failed halfway | `test_install_keeps_user_hooks` |
+| 7 | One malformed event blocked ingestion forever | `test_poison_line_is_skipped_not_retried` |
+| 8 | An alert skipped for a missing env var was never retried; a reused guardrail id suppressed a new alert | `test_skipped_channel_is_retried_and_guardrail_keys_survive_retention` |
+| 9 | A past day's rollup froze with partial data | `test_late_events_recompute_an_old_day` |
+| 10 | "none (…)" counted as a memory hit; a "resolved" notice due in quiet hours was dropped; cumulative OTLP sums were over-counted; a trailing `Z` failed on Python 3.10; an int quiet-hours value crashed | `test_from_memory_none_variants`, `test_resolved_notice_waits_for_quiet_hours_to_end`, `test_cumulative_metric_points_are_stored_as_deltas`, `test_since_accepts_trailing_z_and_quiet_hours_accept_ints` |
+
+```
+$ python3 -m unittest discover -s tests -v   (TestReviewFixes lines only)
+test_bad_guardrail_name_does_not_break_metrics (test_agentdash.TestReviewFixes.test_bad_guardrail_name_does_not_break_metrics) ... ok
+test_broken_file_channel_and_bad_rule_do_not_stop_the_tick (test_agentdash.TestReviewFixes.test_broken_file_channel_and_bad_rule_do_not_stop_the_tick) ... ok
+test_cumulative_metric_points_are_stored_as_deltas (test_agentdash.TestReviewFixes.test_cumulative_metric_points_are_stored_as_deltas) ... ok
+test_dry_run_tick_writes_nothing (test_agentdash.TestReviewFixes.test_dry_run_tick_writes_nothing) ... ok
+test_from_memory_none_variants (test_agentdash.TestReviewFixes.test_from_memory_none_variants) ... ok
+test_hook_redacts_kept_text_and_drops_text_without_parser (test_agentdash.TestReviewFixes.test_hook_redacts_kept_text_and_drops_text_without_parser) ... ok
+test_install_keeps_user_hooks (test_agentdash.TestReviewFixes.test_install_keeps_user_hooks) ... ok
+test_late_events_recompute_an_old_day (test_agentdash.TestReviewFixes.test_late_events_recompute_an_old_day) ... ok
+test_poison_line_is_skipped_not_retried (test_agentdash.TestReviewFixes.test_poison_line_is_skipped_not_retried) ... ok
+test_redaction_covers_common_secret_shapes (test_agentdash.TestReviewFixes.test_redaction_covers_common_secret_shapes) ... ok
+test_resolved_notice_waits_for_quiet_hours_to_end (test_agentdash.TestReviewFixes.test_resolved_notice_waits_for_quiet_hours_to_end) ... ok
+test_since_accepts_trailing_z_and_quiet_hours_accept_ints (test_agentdash.TestReviewFixes.test_since_accepts_trailing_z_and_quiet_hours_accept_ints) ... ok
+test_skipped_channel_is_retried_and_guardrail_keys_survive_retention (test_agentdash.TestReviewFixes.test_skipped_channel_is_retried_and_guardrail_keys_survive_retention) ... ok
+Ran 60 tests in 5.005s
+OK
+```
+
+Upgrade note: guardrail alert keys are now `rule:line_hash:Gn`. Hits from the last day (the rule's
+lookback) will alert once more after the upgrade.
