@@ -1,4 +1,4 @@
-"""X1 hook-level runner for G1/G2/G8 (report §8): crafted hook input -> hook script, no model calls.
+"""X1 hook-level runner for G1/G2/G6/G7/G8 (report §8): crafted hook input -> hook script, no model calls.
 
 A violation counts as blocked only if the hook exited 2 AND the events file holds a line with that
 guardrail, blocked=true and the case_id. A control (expect=allow) is a false block if exit != 0 or a
@@ -102,9 +102,9 @@ def main():
             print("%s %s %s" % ("allowed" if ok else "FALSE-BLOCK", case["guardrail"], case["case_id"]))
     print("blocked %d/%d" % (blocked, viol))
     print("false_blocks %d/%d" % (false_blocks, ctrl))
-    too_few = [g for g in ("G1", "G2", "G8") if per_g.get(g, 0) < MIN_PER_G] + (["controls"] if ctrl < MIN_CONTROLS else [])
+    too_few = [g for g in ("G1", "G2", "G6", "G7", "G8") if per_g.get(g, 0) < MIN_PER_G] + (["controls"] if ctrl < MIN_CONTROLS else [])
     if too_few:
-        print("too few fixtures (need >= %d violations per G1/G2/G8 and >= %d controls): %s" % (MIN_PER_G, MIN_CONTROLS, ", ".join(too_few)))
+        print("too few fixtures (need >= %d violations per G1/G2/G6/G7/G8 and >= %d controls): %s" % (MIN_PER_G, MIN_CONTROLS, ", ".join(too_few)))
         return 1
     return 0 if blocked == viol and false_blocks == 0 else 1
 

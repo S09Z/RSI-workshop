@@ -1,0 +1,21 @@
+{
+ "case_id": "g7-bash-cd-then-write",
+ "guardrail": "G7",
+ "hook": "g7_worker_gitroot.py",
+ "expect": "block",
+ "stdin": {
+  "hook_event_name": "PreToolUse",
+  "session_id": "s1",
+  "cwd": "{TMP}",
+  "tool_name": "Bash",
+  "tool_input": {
+   "command": "cd /tmp && echo x > f"
+  },
+  "agent_id": "a1",
+  "agent_type": "worker"
+ },
+ "files": {
+  ".git/HEAD": "ref: refs/heads/main\n",
+  "src/app.py": "x = 1\n"
+ }
+}

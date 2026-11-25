@@ -1,0 +1,22 @@
+{
+ "case_id": "ctl-g7-write-in-root",
+ "guardrail": "G7",
+ "hook": "g7_worker_gitroot.py",
+ "expect": "allow",
+ "stdin": {
+  "hook_event_name": "PreToolUse",
+  "session_id": "s1",
+  "cwd": "{TMP}",
+  "tool_name": "Write",
+  "tool_input": {
+   "file_path": "{TMP}/src/app.py",
+   "content": "x = 2\n"
+  },
+  "agent_id": "a1",
+  "agent_type": "worker"
+ },
+ "files": {
+  ".git/HEAD": "ref: refs/heads/main\n",
+  "src/app.py": "x = 1\n"
+ }
+}
