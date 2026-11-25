@@ -1,0 +1,4 @@
+# v0 placeholder config
+name: full-system
+description: Orchestrator + Worker + Advisor
+# model, tools and task set: pending report

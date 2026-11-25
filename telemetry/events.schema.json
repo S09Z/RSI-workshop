@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "events.jsonl event (v0, v2 pending report §4/§5/§7)",
+  "type": "object",
+  "required": ["ts", "event"],
+  "properties": {
+    "ts": {"type": "string"},
+    "event": {"type": "string"},
+    "agent": {"enum": ["orchestrator", "worker", "advisor"]},
+    "task_id": {"type": "string"},
+    "status": {"type": "string"},
+    "attempt": {"type": "integer"},
+    "cost_usd": {"type": "number"}
+  },
+  "additionalProperties": true
+}

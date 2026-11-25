@@ -1,0 +1,43 @@
+# Guardrail spec as described by the system's owner. Spec only: no hook code exists.
+# status: active | proposed. G1-G8 are never removed or weakened.
+guardrails:
+  - id: G1
+    name: report contract check
+    enforces: WORKER REPORT and ADVISOR GUIDANCE match their required fields
+    status: active
+    protected: true
+  - id: G2
+    name: Orchestrator may not write files
+    enforces: the Orchestrator makes no file edits
+    status: active
+    protected: true
+  - id: G3
+    name: silent-failure detection
+    enforces: failures that report success are caught
+    status: active
+    protected: true
+  - id: G4
+    name: fresh evidence required
+    enforces: VERIFICATION carries a command, result and ran_at from this run
+    status: active
+    protected: true
+  - id: G5
+    name: test-first acceptance gate
+    enforces: the DONE_WHEN test must fail before the Worker starts
+    status: active
+    protected: true
+  - id: G6
+    name: Advisor may write only to its memory folder
+    enforces: Advisor writes stay inside its memory folder
+    status: active
+    protected: true
+  - id: G7
+    name: Worker may write only inside the git root
+    enforces: Worker writes stay inside the git root
+    status: active
+    protected: true
+  - id: G8
+    name: Worker may not edit the test files named in DONE_WHEN
+    enforces: the acceptance test cannot be changed by the Worker
+    status: active
+    protected: true

@@ -1,0 +1,11 @@
+# Routing as described by the system's owner.
+models:
+  orchestrator: opus
+  worker: sonnet
+  advisor: opus
+limits:
+  worker_attempts_max: 3
+  advisor_rounds_max: 2
+escalation:
+  on_worker_not_works: consult advisor, then retry worker
+  task_end_states: [DONE, STUCK]

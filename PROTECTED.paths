@@ -1,0 +1,6 @@
+# Paths agents may never write. Input for proposed guardrail G9. One path per line.
+hooks/
+evals/graders/
+evals/tasks/heldout/
+PROTECTED.paths
+scripts/install.sh

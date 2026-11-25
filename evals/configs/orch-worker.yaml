@@ -1,0 +1,4 @@
+# v0 placeholder config
+name: orch-worker
+description: Orchestrator + Worker
+# model, tools and task set: pending report

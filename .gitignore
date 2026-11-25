@@ -1,0 +1,4 @@
+.superpowers/
+evals/results/raw/
+*.log
+.env
