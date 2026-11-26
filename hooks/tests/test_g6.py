@@ -70,6 +70,9 @@ class TestG6Denied(Base):
     def test_bash_cd_then_write_denied(self):
         self.assertDenied(self.run_hook("Bash", command="cd /tmp && echo x > f"))
 
+    def test_bash_git_commit_in_project_denied(self):
+        self.assertDenied(self.run_hook("Bash", command="git commit -am x"))
+
     def test_bash_python_c_denied(self):
         self.assertDenied(self.run_hook("Bash", command="python3 -c 'open(\"f\",\"w\")'"))
 

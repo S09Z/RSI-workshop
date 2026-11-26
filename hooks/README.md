@@ -37,15 +37,19 @@ the Harden phase (ADR-0001) for **G1, G2, G6, G7 and G8**. G3, G4 and G5 have no
     the hook state and event log are agent-writable except for the names the hook denies; a Worker can add
     `conftest.py`/`pytest.ini` that patch the test (G14); path comparison is case-folded and uses `samefile`.
   - G6, G7: same lexical Bash limit (shared `lib/shellscan.py`); write-capable MCP tools; a Worker symlink created
-    inside the repo after the check. Bash with `$VAR`, backticks, `cd`/`-C`, grouping, or `python|bash -c` plus a write is
-    denied as unverifiable.
+    inside the repo after the check. Not seen: a script file that writes (`bash run.sh`, `python3 x.py`, `make`),
+    `sed 'w FILE'`, `npm install -g`. Denied as unverifiable: `$VAR`/backticks, brace expansion, `cd`/`-C`/`--work-tree`/`GIT_*`,
+    grouping or a write; any interpreter with inline code or code on stdin (`| sh`, `python3 -`, `bash -c`, also
+    behind `env`/`sudo`/`timeout`/`nice`); `xargs`, `eval`, `find -exec/-delete`, `git config --global`.
+    Any git subcommand except diff/status/log/show and similar counts as a write to the working tree at `cwd`
+    (so the Advisor cannot `git commit` the project)
   - Over-blocking is accepted: a Bash write through an unresolved `$VAR` is denied when DONE_WHEN files are known.
 
 ## Run the checks
 
 ```bash
 python3 -I -W error -m unittest discover -s hooks/tests -p 'test_*.py'
-python3 -I hooks/tests/run_x1.py        # blocked 44/44, false_blocks 0/17
+python3 -I hooks/tests/run_x1.py        # blocked 50/50, false_blocks 0/20
 python3 -I scripts/check_scaffold.py
 ```
 

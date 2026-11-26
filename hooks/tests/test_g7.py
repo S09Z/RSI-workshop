@@ -84,6 +84,12 @@ class TestG7Denied(Base):
     def test_bash_variable_target_denied(self):
         self.assertDenied(self.run_hook("Bash", command="echo x > $HOME/f"))
 
+    def test_bash_code_piped_to_shell_denied(self):
+        self.assertDenied(self.run_hook("Bash", command="echo 'touch %s/f' | sh" % self.other))
+
+    def test_bash_wrapped_inline_code_denied(self):
+        self.assertDenied(self.run_hook("Bash", command="timeout 5 bash -c 'touch %s/f'" % self.other))
+
     def test_bash_mv_to_outside_denied(self):
         self.assertDenied(self.run_hook("Bash", command="mv a.py %s/a.py" % self.other))
 
@@ -109,6 +115,10 @@ class TestG7Allowed(Base):
 
     def test_bash_redirect_inside_root_allowed(self):
         self.assertAllowed(self.run_hook("Bash", command="echo x > out.txt"))
+
+    def test_bash_heredoc_file_and_git_commit_allowed(self):
+        self.assertAllowed(self.run_hook("Bash", command="cat > a.py <<'EOF'\nx = \"it's\"\nEOF"))
+        self.assertAllowed(self.run_hook("Bash", command="git commit -m \"$(cat <<'EOF'\nfix\nEOF\n)\""))
 
     def test_bash_pytest_and_cat_allowed(self):
         self.assertAllowed(self.run_hook("Bash", command="pytest -q 2>&1 | cat"))

@@ -60,7 +60,7 @@ guardrails:
     proposed_mechanism: PreToolUse path check + sandbox write scope; compare resolved real paths, since ~/.claude/agent-memory/advisor/ and the repo's memory/advisor/ are aliases via install.sh symlinks   # proposed (report §9)
     hook: [hooks/g6_advisor_memory.py]
     implemented: true
-    residual: Bash analysis is lexical (a path built at run time by a script, base64 or another interpreter is not seen); write-capable MCP tools are not covered; needs sandbox write scope
+    residual: Bash analysis is lexical (a path built at run time, a script file that writes, sed 'w FILE', npm install -g, make, base64 or another interpreter is not seen); write-capable MCP tools are not covered; needs sandbox write scope
   - id: G7
     name: Worker may write only inside the git root
     enforces: Worker writes stay inside the git root
@@ -70,7 +70,7 @@ guardrails:
     proposed_mechanism: PreToolUse path check + sandbox   # proposed (report §9)
     hook: [hooks/g7_worker_gitroot.py]
     implemented: true
-    residual: Bash analysis is lexical (a path built at run time by a script, base64 or another interpreter is not seen); a symlink created inside the repo after the check cannot be pre-empted; write-capable MCP tools are not covered; needs sandbox write scope
+    residual: Bash analysis is lexical (a path built at run time, a script file that writes, sed 'w FILE', npm install -g, make, base64 or another interpreter is not seen); a symlink created inside the repo after the check cannot be pre-empted; write-capable MCP tools are not covered; needs sandbox write scope
   - id: G8
     name: Worker may not edit the test files named in DONE_WHEN
     enforces: the acceptance test cannot be changed by the Worker
