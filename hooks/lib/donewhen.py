@@ -275,14 +275,15 @@ def read_record(session_id: str, task: str) -> Optional[dict]:
     return rec if rec and rec["session"] == str(session_id) else None
 
 
-def newest_open(session_id: str) -> Optional[dict]:
+def newest_open(session_id: str, include_stopped: bool = False) -> Optional[dict]:
     folder = os.path.join(common.state_dir(), "donewhen")
     try:
         names = os.listdir(folder)
     except FileNotFoundError:
         return None
     recs = [_load(os.path.join(folder, n)) for n in names if n.endswith(".json")]
-    recs = [r for r in recs if r and r["session"] == str(session_id) and not r.get("stopped")]
+    recs = [r for r in recs if r and r["session"] == str(session_id)
+            and (include_stopped or not r.get("stopped"))]
     return max(recs, key=lambda r: r.get("written_at", 0)) if recs else None
 
 
@@ -332,7 +333,12 @@ def works_report(text: str) -> Optional[str]:
     return text[start:end if end >= 0 else len(text)]
 
 
+def task_id(report: str) -> Optional[str]:
+    m = re.search(r"^[ \t]*TASK:[^\n]*?\[(T\d+)\]", report, re.M)
+    return m.group(1) if m else None
+
+
 def record_for_report(session_id: str, report: str) -> Optional[dict]:
     """By the [Tn] on the report's TASK: line; without one, the newest record not yet verified."""
-    m = re.search(r"^[ \t]*TASK:[^\n]*?\[(T\d+)\]", report, re.M)
-    return read_record(session_id, m.group(1)) if m else newest_open(session_id)
+    task = task_id(report)
+    return read_record(session_id, task) if task else newest_open(session_id)
