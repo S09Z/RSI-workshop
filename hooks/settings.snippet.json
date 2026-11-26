@@ -15,10 +15,17 @@
           { "type": "command", "command": "python3 -I \"$HOME/.claude/hooks/g8_worker_tests.py\"" }
         ] },
       { "matcher": "Agent",
-        "hooks": [ { "type": "command", "command": "python3 -I \"$HOME/.claude/hooks/g8_capture.py\"" } ] }
+        "hooks": [
+          { "type": "command", "command": "python3 -I \"$HOME/.claude/hooks/g8_capture.py\"" },
+          { "type": "command", "command": "python3 -I \"$HOME/.claude/hooks/g5_test_first.py\"", "timeout": 150 }
+        ] }
     ],
     "SubagentStop": [
-      { "hooks": [ { "type": "command", "command": "python3 -I \"$HOME/.claude/hooks/g1_report_contract.py\"" } ] }
+      { "hooks": [
+          { "type": "command", "command": "python3 -I \"$HOME/.claude/hooks/g1_report_contract.py\"" },
+          { "type": "command", "command": "python3 -I \"$HOME/.claude/hooks/g4_fresh_evidence.py\"", "timeout": 150 },
+          { "type": "command", "command": "python3 -I \"$HOME/.claude/hooks/g3_rerun_done_when.py\"", "timeout": 150 }
+        ] }
     ]
   }
 }

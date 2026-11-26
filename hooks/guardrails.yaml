@@ -2,7 +2,7 @@
 # status: active | proposed. G1-G8 are never removed or weakened.
 # status: active = adopted in the design; enforced = a blocking hook exists.
 # implemented = blocking hook code exists and passes the X1 hook layer (hooks/tests/run_x1.py); enforced = registered
-# in settings.json and the X1 live layer passed. G1, G2, G6, G7, G8 are implemented, not yet enforced.
+# in settings.json and the X1 live layer passed. G1-G8 are implemented, not yet enforced.
 # enforced: false for every guardrail today (docs/baseline.md: all hooks are async loggers).
 # proposed_mechanism fields and G9-G14 are proposed (report §9) and need human approval.
 # Any future G1-G8 byte-identity check (G12) must baseline against commit 826985b or later:
@@ -37,6 +37,9 @@ guardrails:
     enforced: false
     protected: true
     proposed_mechanism: SubagentStop re-runs DONE_WHEN; WORKS + fail -> block   # proposed (report §9)
+    hook: [hooks/g3_rerun_done_when.py]
+    implemented: true
+    residual: after any SubagentStop block (this hook or another) the retry carries stop_hook_active and is let through; the Worker's TASK line picks which record is verified; code under test can forge the runner summary or patch the test (conftest.py, G14); the hook runs repo code outside any sandbox; hook state is protected only by the lexical G7/G8 checks; the settings timeout must exceed AGENT_DONEWHEN_TIMEOUT or the harness kills the hook and the stop is not blocked
   - id: G4
     name: fresh evidence required
     enforces: VERIFICATION carries a command, result and ran_at from this run
@@ -44,6 +47,9 @@ guardrails:
     enforced: false
     protected: true
     proposed_mechanism: SubagentStop checks ran_at within run   # proposed (report §9)
+    hook: [hooks/g4_fresh_evidence.py]
+    implemented: true
+    residual: ran_at is self-reported, only its format and window are checked (G3 re-runs the test); shares G3's retry cap
   - id: G5
     name: test-first acceptance gate
     enforces: the DONE_WHEN test must fail before the Worker starts
@@ -51,6 +57,9 @@ guardrails:
     enforced: false
     protected: true
     proposed_mechanism: hook runs DONE_WHEN before first Worker dispatch; must fail   # proposed (report §9)
+    hook: [hooks/g5_test_first.py]
+    implemented: true
+    residual: a test that fails for the wrong reason satisfies it; TASK_KIND write-test skips the test-first run (logged); records expire after 24 hours, after which a task id is unlocked; -o addopts= denies suites that depend on addopts; the run keeps only PATH, HOME, LANG, LC_ALL, TMPDIR, VIRTUAL_ENV; the settings timeout must exceed AGENT_DONEWHEN_TIMEOUT
   - id: G6
     name: Advisor may write only to its memory folder
     enforces: Advisor Write and Edit calls are allowed only inside its memory folder (~/.claude/agent-memory/advisor/)

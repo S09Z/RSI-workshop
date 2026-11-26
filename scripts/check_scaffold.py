@@ -92,8 +92,8 @@ for gid, e in entries.items():
     if int(gid[1:]) >= 9 and e.get("status") != "proposed":
         fail(f"guardrails.yaml {gid} status is not proposed")
 
-# Harden: G1/G2/G6/G7/G8 are implemented (blocking hook code + tests) but not yet enforced (not registered).
-HARDEN = ("G1", "G2", "G6", "G7", "G8")
+# Harden: G1-G8 are implemented (blocking hook code + tests) but not yet enforced (not registered).
+HARDEN = ("G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8")
 listed_hooks = set()
 for gid, e in entries.items():
     hv = e.get("hook", "").strip()

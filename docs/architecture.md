@@ -43,7 +43,7 @@ The Mechanism column and G9-G14 are proposed (report §9) and need human approva
 | G13 | Audit-log integrity | proposed | no | append-only, hash-chained events; logger outside agent-writable paths |
 | G14 | Test-tamper heuristics | proposed | no | flag skip markers, `sys.exit`, conftest/operator patches in Worker diffs |
 
-Spec: `hooks/guardrails.yaml`. Blocking hook code exists for G1, G2, G6, G7 and G8 (`implemented: true`, X1 hook layer passes); it is not registered in `settings.json`, so "Enforced" stays no for every row. G3, G4 and G5 have no code. G1-G8 are never removed or weakened.
+Spec: `hooks/guardrails.yaml`. Blocking hook code exists for G1-G8 (`implemented: true`, X1 hook layer passes); it is not registered in `settings.json`, so "Enforced" stays no for every row. G1-G8 are never removed or weakened.
 
 Proposed (report §9) additions to `PROTECTED.paths`, now on disk and added: `evals/configs/`,
 `proposals/accepted/`, `telemetry/events.schema.json`, and the live surfaces and gate scripts
