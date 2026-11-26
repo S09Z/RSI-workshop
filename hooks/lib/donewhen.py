@@ -3,9 +3,14 @@ without a shell, classify the run, and keep one record per task.
 
 Nothing here runs a command that validate() did not accept.
 """
+import math
 import os
 import re
 import shlex
+import shutil
+import signal
+import subprocess
+import tempfile
 from dataclasses import dataclass
 from typing import List, Optional
 
@@ -113,3 +118,99 @@ def git_root(cwd: str) -> Optional[str]:
         if parent == p:
             return None
         p = parent
+
+
+ENV_KEEP = ("PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "VIRTUAL_ENV")
+DEFAULT_TIMEOUT = 120.0
+TAIL = 800
+
+
+@dataclass
+class RunResult:
+    status: str                 # "passed" | "failed" | "error"
+    returncode: Optional[int]
+    passed: int
+    failed: int
+    tail: str
+
+
+def timeout_seconds() -> float:
+    try:
+        v = float(os.environ.get("AGENT_DONEWHEN_TIMEOUT", ""))
+    except ValueError:
+        return DEFAULT_TIMEOUT
+    return v if math.isfinite(v) and v > 0 else DEFAULT_TIMEOUT
+
+
+def _counts(runner, out):
+    """(passed, failed) from the runner's LAST summary; (0, 0) when there is none."""
+    if runner == "pytest":
+        lines = [x for x in out.splitlines() if re.search(r"\b\d+ (passed|failed|errors?|skipped)\b.* in [\d.]+s", x)]
+        if not lines:
+            return 0, 0
+        n = dict((k.rstrip("s") if k.startswith("error") else k, int(v))
+                 for v, k in re.findall(r"(\d+) (passed|failed|errors?)\b", lines[-1]))
+        return n.get("passed", 0), n.get("failed", 0) + n.get("error", 0)
+    found = list(re.finditer(r"^Ran (\d+) tests? in .*\n+^(OK|FAILED)(?: \((.*)\))?[ \t]*$", out, re.M))
+    if not found:
+        return 0, 0
+    ran, verdict, detail = int(found[-1].group(1)), found[-1].group(2), found[-1].group(3) or ""
+    n = {k.strip(): int(v) for k, v in re.findall(r"([a-z ]+)=(\d+)", detail)}
+    failed = n.get("failures", 0) + n.get("errors", 0) + n.get("unexpected successes", 0)
+    if verdict == "FAILED":
+        failed = max(failed, 1)
+    return max(ran - failed - n.get("skipped", 0) - n.get("expected failures", 0), 0), failed
+
+
+def classify(runner: str, returncode: Optional[int], out: str):
+    """(status, passed, failed). Anything that is not a clear pass or a clear test failure is an error."""
+    passed, failed = _counts(runner, out)
+    if returncode == 0 and passed >= 1 and failed == 0:
+        return "passed", passed, failed
+    if returncode == 1 and failed >= 1:
+        return "failed", passed, failed
+    return "error", passed, failed
+
+
+def _kill_group(proc):
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass
+
+
+def run(d: Dispatch, root: str, timeout: Optional[float] = None) -> RunResult:
+    """Run an allowlisted command in root. Never raises for a bad command; returns status "error"."""
+    why = "write-test dispatch has no command" if d.kind != "test" else validate(d, root)
+    if why:
+        return RunResult("error", None, 0, 0, why[-TAIL:])
+    runner = _runner(d.argv)[0]
+    argv = list(d.argv)
+    if runner == "pytest":
+        at = 1 if argv[0] == "pytest" else 3
+        argv[at:at] = ["-p", "no:cacheprovider", "-o", "addopts="]
+    env = {k: os.environ[k] for k in ENV_KEEP if k in os.environ}
+    env["PATH"] = os.pathsep.join(p for p in env.get("PATH", "").split(os.pathsep) if os.path.isabs(p))
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    exe = shutil.which(argv[0], path=env["PATH"]) if env["PATH"] else None
+    if not exe:
+        return RunResult("error", 127, 0, 0, "%s not found on PATH" % argv[0])
+    # Output goes to a file, not a pipe: a surviving grandchild must not be able to hang the hook
+    # (a hook the harness times out does not block).
+    with tempfile.TemporaryFile() as log:
+        proc = subprocess.Popen([exe] + argv[1:], cwd=root, env=env, stdin=subprocess.DEVNULL,
+                                stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+        try:
+            code = proc.wait(timeout=timeout_seconds() if timeout is None else timeout)
+        except subprocess.TimeoutExpired:
+            code = None
+        finally:
+            _kill_group(proc)
+        if code is None:
+            proc.wait(timeout=5)
+            return RunResult("error", None, 0, 0, "timeout")
+        size = log.seek(0, os.SEEK_END)
+        log.seek(max(size - 200000, 0))
+        out = log.read().decode("utf-8", "replace")
+    status, passed, failed = classify(runner, code, out)
+    return RunResult(status, code, passed, failed, out[-TAIL:])

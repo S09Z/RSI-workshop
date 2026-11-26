@@ -2,11 +2,18 @@
 import os
 import sys
 import tempfile
+import time
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 from lib import donewhen as dw  # noqa: E402
+
+try:
+    import pytest  # noqa: F401
+    HAS_PYTEST = True
+except ImportError:
+    HAS_PYTEST = False
 
 
 def put(root, rel, text=""):
@@ -103,6 +110,109 @@ class ParseValidate(unittest.TestCase):
         bare = os.path.realpath(tempfile.mkdtemp(prefix="dw-none-"))
         self.assertIsNone(dw.git_root(bare))
         self.assertIsNone(dw.git_root(""))
+
+
+FAIL = "import unittest\nclass T(unittest.TestCase):\n    def test_x(self):\n        self.assertEqual(1, 2)\n"
+PASS = "import unittest\nclass T(unittest.TestCase):\n    def test_x(self):\n        pass\n"
+SKIP = ("import unittest\nclass T(unittest.TestCase):\n    @unittest.skip('no')\n"
+        "    def test_x(self):\n        pass\n")
+
+
+class RunClassify(unittest.TestCase):
+    def setUp(self):
+        self.root = os.path.realpath(tempfile.mkdtemp(prefix="dw-run-"))
+        os.mkdir(os.path.join(self.root, ".git"))
+
+    def go(self, body, runner=("python3", "-m", "unittest", "-v"), name="test_t.py", timeout=None):
+        f = put(self.root, "tests/" + name, body)
+        d = dw.Dispatch("T1", "test", list(runner) + ["tests/" + name], [os.path.realpath(f)])
+        return dw.run(d, self.root, timeout)
+
+    def test_failed(self):
+        r = self.go(FAIL)
+        self.assertEqual((r.status, r.failed), ("failed", 1))
+
+    def test_passed(self):
+        r = self.go(PASS)
+        self.assertEqual((r.status, r.passed, r.returncode), ("passed", 1, 0))
+
+    def test_not_run_is_error(self):
+        for body in ("", SKIP, "import sys\nsys.exit(0)\n"):
+            with self.subTest(body=body):
+                self.assertEqual(self.go(body).status, "error")
+
+    def test_syntax_error_is_error(self):
+        self.assertEqual(self.go("def (:\n").status, "error")
+
+    def test_timeout_kills_group(self):
+        marker = os.path.join(self.root, "late")
+        child = "import time; time.sleep(3); open(%r, 'w')" % marker
+        body = ("import subprocess, sys, time\n"
+                "subprocess.Popen([sys.executable, '-c', %r])\n"
+                "time.sleep(30)\n" % child)
+        t0 = time.time()
+        r = self.go(body, timeout=1)
+        self.assertEqual((r.status, r.tail), ("error", "timeout"))
+        self.assertLess(time.time() - t0, 10)
+        time.sleep(3)
+        self.assertFalse(os.path.exists(marker))
+
+    def test_child_holding_output_does_not_hang(self):
+        body = ("import subprocess, sys\n"
+                "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(20)'], start_new_session=True)\n" + PASS)
+        t0 = time.time()
+        self.assertEqual(self.go(body).status, "passed")
+        self.assertLess(time.time() - t0, 10)
+
+    def test_missing_runner_and_unknown_codes_are_error(self):
+        for code in (127, 2, 3, 4, 5, None):
+            with self.subTest(code=code):
+                self.assertEqual(dw.classify("pytest", code, "1 passed in 0.1s")[0], "error")
+        old = os.environ.get("PATH", "")
+        os.environ["PATH"] = ""
+        try:
+            self.assertEqual(self.go(PASS, runner=("pytest",)).status, "error")
+        finally:
+            os.environ["PATH"] = old
+
+    def test_disallowed_command_not_executed(self):
+        marker = os.path.join(self.root, "ran")
+        d = dw.Dispatch("T1", "test", ["python3", "-c", "open(%r,'w')" % marker], [])
+        self.assertEqual(dw.run(d, self.root).status, "error")
+        self.assertFalse(os.path.exists(marker))
+
+    def test_env_scrubbed_and_tail_bounded(self):
+        os.environ["SECRET_TOKEN_X"] = "s3cr3t-value"
+        try:
+            r = self.go("import os\nprint('x' * 5000)\nprint('TOKEN=', os.environ.get('SECRET_TOKEN_X'))\n" + PASS)
+        finally:
+            del os.environ["SECRET_TOKEN_X"]
+        self.assertEqual(r.status, "passed")
+        self.assertLessEqual(len(r.tail), 800)
+        self.assertNotIn("s3cr3t-value", r.tail)
+
+    @unittest.skipUnless(HAS_PYTEST, "pytest not installed")
+    def test_pytest(self):
+        run = ("python3", "-m", "pytest", "-q")
+        self.assertEqual(self.go(FAIL, runner=run).status, "failed")
+        self.assertEqual(self.go(PASS, runner=run, name="test_p.py").status, "passed")
+        self.assertEqual(self.go("", runner=run, name="test_e.py").status, "error")
+        self.assertEqual(self.go(SKIP, runner=run, name="test_s.py").status, "error")
+        self.assertEqual(self.go("def (:\n", runner=run, name="test_bad.py").status, "error")
+
+    def test_timeout_seconds(self):
+        old = os.environ.pop("AGENT_DONEWHEN_TIMEOUT", None)
+        try:
+            self.assertEqual(dw.timeout_seconds(), 120.0)
+            for bad in ("abc", "-1", "0", "inf", "nan"):
+                os.environ["AGENT_DONEWHEN_TIMEOUT"] = bad
+                self.assertEqual(dw.timeout_seconds(), 120.0, bad)
+            os.environ["AGENT_DONEWHEN_TIMEOUT"] = "7"
+            self.assertEqual(dw.timeout_seconds(), 7.0)
+        finally:
+            os.environ.pop("AGENT_DONEWHEN_TIMEOUT", None)
+            if old is not None:
+                os.environ["AGENT_DONEWHEN_TIMEOUT"] = old
 
 
 if __name__ == "__main__":
