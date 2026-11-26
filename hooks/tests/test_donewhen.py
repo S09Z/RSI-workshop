@@ -215,5 +215,69 @@ class RunClassify(unittest.TestCase):
                 os.environ["AGENT_DONEWHEN_TIMEOUT"] = old
 
 
+class Records(unittest.TestCase):
+    def setUp(self):
+        self.state = tempfile.mkdtemp(prefix="dw-state-")
+        self.old = os.environ.get("AGENT_HOOK_STATE_DIR")
+        os.environ["AGENT_HOOK_STATE_DIR"] = self.state
+
+    def tearDown(self):
+        if self.old is None:
+            os.environ.pop("AGENT_HOOK_STATE_DIR", None)
+        else:
+            os.environ["AGENT_HOOK_STATE_DIR"] = self.old
+
+    def write(self, sid, task, at="2026-01-01T00:00:00Z"):
+        d = dw.Dispatch(task, "test", ["pytest", "t.py"], ["/r/t.py"])
+        dw.write_record(sid, d, "pytest t.py", at, "/r")
+
+    def test_roundtrip(self):
+        self.write("s1", "T1")
+        r = dw.read_record("s1", "T1")
+        self.assertEqual((r["task"], r["kind"], r["argv"], r["files"], r["root"], r["cmd_text"], r["dispatched_at"], r["stopped"]),
+                         ("T1", "test", ["pytest", "t.py"], ["/r/t.py"], "/r", "pytest t.py", "2026-01-01T00:00:00Z", False))
+
+    def test_missing_corrupt_and_non_dict(self):
+        self.assertIsNone(dw.read_record("s1", "T9"))
+        self.write("s1", "T1")
+        for text in ("{not json", "[1]", "{}"):
+            put(self.state, os.path.relpath(dw.record_path("s1", "T1"), self.state), text)
+            self.assertIsNone(dw.read_record("s1", "T1"), text)
+        self.assertIsNone(dw.newest_open("s1"))
+
+    def test_newest_open_per_session(self):
+        self.write("a", "T1")
+        time.sleep(0.01)
+        self.write("a", "T2")
+        time.sleep(0.01)
+        self.write("a-b", "T3")
+        self.assertEqual(dw.newest_open("a")["task"], "T2")
+        dw.mark_stopped("a", "T2")
+        self.assertEqual(dw.newest_open("a")["task"], "T1")
+        self.assertTrue(dw.read_record("a", "T2")["stopped"])
+        dw.mark_stopped("a", "T1")
+        self.assertIsNone(dw.newest_open("a"))
+        self.assertIsNone(dw.newest_open("nobody"))
+
+    def test_other_sessions_record_not_read(self):
+        self.write("a/b", "T1")
+        self.assertIsNone(dw.read_record("a_b", "T1"))  # same file name, different session
+
+    def test_prune(self):
+        self.write("s1", "T1")
+        old = time.time() - 25 * 3600
+        os.utime(dw.record_path("s1", "T1"), (old, old))
+        self.write("s1", "T2")
+        self.assertIsNone(dw.read_record("s1", "T1"))
+        self.assertIsNotNone(dw.read_record("s1", "T2"))
+
+    def test_sanitized_path(self):
+        p = dw.record_path("../x", "../T1")
+        self.assertEqual(os.path.dirname(p), os.path.join(self.state, "donewhen"))
+
+    def test_now_iso(self):
+        self.assertRegex(dw.now_iso(), r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
+
+
 if __name__ == "__main__":
     unittest.main()

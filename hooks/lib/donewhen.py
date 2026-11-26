@@ -3,6 +3,7 @@ without a shell, classify the run, and keep one record per task.
 
 Nothing here runs a command that validate() did not accept.
 """
+import json
 import math
 import os
 import re
@@ -11,8 +12,12 @@ import shutil
 import signal
 import subprocess
 import tempfile
+import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import List, Optional
+
+from . import common
 
 TASK_ID = re.compile(r"\s*\[(T\d+)\]")
 META = ";&|<>$`()\n"
@@ -214,3 +219,75 @@ def run(d: Dispatch, root: str, timeout: Optional[float] = None) -> RunResult:
         out = log.read().decode("utf-8", "replace")
     status, passed, failed = classify(runner, code, out)
     return RunResult(status, code, passed, failed, out[-TAIL:])
+
+
+TTL = 24 * 3600
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _safe(part):
+    return re.sub(r"[^A-Za-z0-9_-]", "_", str(part))
+
+
+def record_path(session_id: str, task: str) -> str:
+    return os.path.join(common.state_dir(), "donewhen", "%s-%s.json" % (_safe(session_id), _safe(task)))
+
+
+def _save(path, rec):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = "%s.%d.tmp" % (path, os.getpid())
+    with open(tmp, "w") as f:
+        json.dump(rec, f)
+    os.replace(tmp, path)
+
+
+def _load(path):
+    try:
+        with open(path) as f:
+            rec = json.load(f)
+    except (OSError, ValueError):
+        return None
+    return rec if isinstance(rec, dict) and "task" in rec and "session" in rec else None
+
+
+def write_record(session_id: str, d: Dispatch, cmd_text: str, dispatched_at: str, root: str) -> None:
+    path = record_path(session_id, d.task)
+    folder = os.path.dirname(path)
+    os.makedirs(folder, exist_ok=True)
+    now = time.time()
+    for name in os.listdir(folder):
+        try:
+            old = os.path.join(folder, name)
+            if now - os.lstat(old).st_mtime > TTL:
+                os.remove(old)
+        except FileNotFoundError:
+            pass  # another hook pruned it first
+    _save(path, {"session": str(session_id), "task": d.task, "kind": d.kind, "argv": d.argv, "files": d.files,
+                 "cmd_text": cmd_text, "root": root, "dispatched_at": dispatched_at, "written_at": now,
+                 "stopped": False})
+
+
+def read_record(session_id: str, task: str) -> Optional[dict]:
+    rec = _load(record_path(session_id, task))
+    return rec if rec and rec["session"] == str(session_id) else None
+
+
+def newest_open(session_id: str) -> Optional[dict]:
+    folder = os.path.join(common.state_dir(), "donewhen")
+    try:
+        names = os.listdir(folder)
+    except FileNotFoundError:
+        return None
+    recs = [_load(os.path.join(folder, n)) for n in names if n.endswith(".json")]
+    recs = [r for r in recs if r and r["session"] == str(session_id) and not r.get("stopped")]
+    return max(recs, key=lambda r: r.get("written_at", 0)) if recs else None
+
+
+def mark_stopped(session_id: str, task: str) -> None:
+    rec = read_record(session_id, task)
+    if rec:
+        rec["stopped"] = True
+        _save(record_path(session_id, task), rec)
