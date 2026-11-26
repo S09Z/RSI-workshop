@@ -291,3 +291,48 @@ def mark_stopped(session_id: str, task: str) -> None:
     if rec:
         rec["stopped"] = True
         _save(record_path(session_id, task), rec)
+
+
+# --- SubagentStop side (G3, G4) ---
+
+WORKS = re.compile(r"^[ \t]*STATUS:[ \t]*WORKS\b(?![ \t]*\|)", re.M)
+
+
+def final_message(event: dict) -> str:
+    """The subagent's last message (same sources as G1). Raises when the transcript cannot be read."""
+    msg = event.get("last_assistant_message")
+    if isinstance(msg, str) and msg.strip():
+        return msg
+    path = event.get("agent_transcript_path")
+    last = ""
+    if path:
+        with open(path) as f:
+            for line in f:
+                try:
+                    rec = json.loads(line)
+                except ValueError:
+                    continue
+                m = rec.get("message") or {}
+                if rec.get("type") == "assistant" or m.get("role") == "assistant":
+                    c = m.get("content")
+                    text = c if isinstance(c, str) else "".join(
+                        b.get("text", "") for b in (c or []) if isinstance(b, dict))
+                    if text.strip():
+                        last = text
+    return last
+
+
+def works_report(text: str) -> Optional[str]:
+    """The text from the report that claims WORKS (any STATUS: WORKS line counts), else None."""
+    m = WORKS.search(text)
+    if not m:
+        return None
+    start = max(text.rfind("=== WORKER REPORT ===", 0, m.start()), 0)
+    end = text.find("=== END REPORT ===", m.start())
+    return text[start:end if end >= 0 else len(text)]
+
+
+def record_for_report(session_id: str, report: str) -> Optional[dict]:
+    """By the [Tn] on the report's TASK: line; without one, the newest record not yet verified."""
+    m = re.search(r"^[ \t]*TASK:[^\n]*?\[(T\d+)\]", report, re.M)
+    return read_record(session_id, m.group(1)) if m else newest_open(session_id)
