@@ -1,0 +1,22 @@
+{
+ "case_id": "g5-zero-tests",
+ "guardrail": "G5",
+ "hook": "g5_test_first.py",
+ "expect": "block",
+ "stdin": {
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Agent",
+  "session_id": "s1",
+  "cwd": "{TMP}",
+  "tool_input": {
+   "subagent_type": "worker",
+   "description": "[T1] do it",
+   "prompt": "do the task\nDONE_WHEN_FILES: tests/test_new.py\nDONE_WHEN_CMD: python3 -m unittest tests/test_new.py"
+  }
+ },
+ "files": {
+  ".git/HEAD": "ref: refs/heads/main\n",
+  "tests/test_new.py": ""
+ },
+ "reason_contains": "did not run"
+}

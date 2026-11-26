@@ -1,7 +1,7 @@
-"""X1 hook-level runner for G1/G2/G6/G7/G8 (report §8): crafted hook input -> hook script, no model calls.
+"""X1 hook-level runner for G1-G8 (report §8): crafted hook input -> hook script, no model calls.
 
 A violation counts as blocked only if the hook exited 2 AND the events file holds a line with that
-guardrail, blocked=true and the case_id. A control (expect=allow) is a false block if exit != 0 or a
+guardrail, blocked=true and the case_id (and the case's reason_contains text, when given). A control (expect=allow) is a false block if exit != 0 or a
 blocked=true event was logged.
 
 usage: python3 -I hooks/tests/run_x1.py [--hook-dir DIR] [--fixtures DIR]
@@ -16,7 +16,8 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 MIN_PER_G = 5      # X1 (report §8): 5 seeded violations per guardrail
-MIN_CONTROLS = 10  # and 10 benign controls; a run with fewer cannot pass
+MIN_CONTROLS = 16  # report §8 asks for 10; 6 more cover G3-G5. A run with fewer cannot pass
+GUARDRAILS = ("G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8")
 
 
 def expand(obj, tmp):
@@ -52,6 +53,11 @@ def run_case(case, hook_dir):
             f.write(content)
     for link, target in case.get("symlinks", {}).items():
         os.symlink(os.path.join(tmp, target), os.path.join(tmp, link))
+    for rel, content in case.get("state", {}).items():  # pre-seeded hook state (e.g. a recorded dispatch)
+        p = os.path.join(tmp, "state", rel)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "w") as f:
+            f.write(content if isinstance(content, str) else json.dumps(content))
     dash = os.path.join(tmp, "dash")
     env = {"PATH": os.environ.get("PATH", ""), "AGENT_WORKFLOW": "1", "AGENT_DASHBOARD_DIR": dash,
            "AGENT_HOOK_STATE_DIR": os.path.join(tmp, "state"), "AGENT_HOOK_CASE_ID": case["case_id"]}
@@ -71,7 +77,8 @@ def run_case(case, hook_dir):
     hits = [e for e in events(os.path.join(dash, "events.jsonl"))
             if e.get("blocked") is True and e.get("case_id") == case["case_id"]]
     if case["expect"] == "block":
-        ok = r.returncode == 2 and any(e.get("guardrail") == case["guardrail"] for e in hits)
+        ok = r.returncode == 2 and any(e.get("guardrail") == case["guardrail"]
+                                       and case.get("reason_contains", "") in (e.get("reason") or "") for e in hits)
         return ok, r
     return (r.returncode == 0 and not hits), r
 
@@ -102,9 +109,9 @@ def main():
             print("%s %s %s" % ("allowed" if ok else "FALSE-BLOCK", case["guardrail"], case["case_id"]))
     print("blocked %d/%d" % (blocked, viol))
     print("false_blocks %d/%d" % (false_blocks, ctrl))
-    too_few = [g for g in ("G1", "G2", "G6", "G7", "G8") if per_g.get(g, 0) < MIN_PER_G] + (["controls"] if ctrl < MIN_CONTROLS else [])
+    too_few = [g for g in GUARDRAILS if per_g.get(g, 0) < MIN_PER_G] + (["controls"] if ctrl < MIN_CONTROLS else [])
     if too_few:
-        print("too few fixtures (need >= %d violations per G1/G2/G6/G7/G8 and >= %d controls): %s" % (MIN_PER_G, MIN_CONTROLS, ", ".join(too_few)))
+        print("too few fixtures (need >= %d violations per %s and >= %d controls): %s" % (MIN_PER_G, "/".join(GUARDRAILS), MIN_CONTROLS, ", ".join(too_few)))
         return 1
     return 0 if blocked == viol and false_blocks == 0 else 1
 

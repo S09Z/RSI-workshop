@@ -1,0 +1,41 @@
+{
+ "case_id": "g3-works-test-still-failing",
+ "guardrail": "G3",
+ "hook": "g3_rerun_done_when.py",
+ "expect": "block",
+ "stdin": {
+  "hook_event_name": "SubagentStop",
+  "agent_type": "worker",
+  "agent_id": "a1",
+  "session_id": "s1",
+  "cwd": "{TMP}",
+  "stop_hook_active": false,
+  "last_assistant_message": "done\n=== WORKER REPORT ===\nTASK: [T1] do it\nSTATUS: WORKS\nFINDINGS:\n- x\nCHANGES:\n- y\nVERIFICATION:\n- command: python3 -m unittest tests/test_new.py\n- result: ok\nATTEMPTS: 1/3\n=== END REPORT ==="
+ },
+ "files": {
+  ".git/HEAD": "ref: refs/heads/main\n",
+  "tests/test_new.py": "import unittest\nclass T(unittest.TestCase):\n    def test_x(self):\n        self.assertTrue(False)\n"
+ },
+ "reason_contains": "re-run is failed",
+ "state": {
+  "donewhen/s1-T1.json": {
+   "session": "s1",
+   "task": "T1",
+   "kind": "test",
+   "argv": [
+    "python3",
+    "-m",
+    "unittest",
+    "tests/test_new.py"
+   ],
+   "files": [
+    "{TMP}/tests/test_new.py"
+   ],
+   "cmd_text": "python3 -m unittest tests/test_new.py",
+   "root": "{TMP}",
+   "dispatched_at": "2020-01-01T00:00:00Z",
+   "written_at": 1,
+   "stopped": false
+  }
+ }
+}

@@ -7,7 +7,7 @@ import unittest
 HERE = os.path.dirname(os.path.abspath(__file__))
 RUNNER = os.path.join(HERE, "run_x1.py")
 SCRIPTS = ["g1_report_contract.py", "g2_orchestrator_nowrite.py", "g6_advisor_memory.py", "g7_worker_gitroot.py",
-           "g8_capture.py", "g8_worker_tests.py"]
+           "g8_capture.py", "g8_worker_tests.py", "g3_rerun_done_when.py", "g4_fresh_evidence.py", "g5_test_first.py"]
 
 
 def run(*args):
@@ -28,9 +28,9 @@ class TestRunner(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         import re
         m = re.search(r"blocked (\d+)/(\d+)", r.stdout)
-        self.assertTrue(m and m.group(1) == m.group(2) and int(m.group(2)) >= 44, r.stdout[-300:])
+        self.assertTrue(m and m.group(1) == m.group(2) and int(m.group(2)) >= 65, r.stdout[-300:])
         m = re.search(r"false_blocks (\d+)/(\d+)", r.stdout)
-        self.assertTrue(m and m.group(1) == "0" and int(m.group(2)) >= 17, r.stdout[-300:])
+        self.assertTrue(m and m.group(1) == "0" and int(m.group(2)) >= 26, r.stdout[-300:])
 
     def test_runner_fails_on_always_allow_stub(self):
         r = run("--hook-dir", stub_dir("import sys\nsys.exit(0)\n"))
@@ -51,6 +51,31 @@ class TestRunner(unittest.TestCase):
         r = run("--fixtures", fx)
         self.assertNotEqual(r.returncode, 0, r.stdout)
         self.assertIn("too few", r.stdout)
+
+    def test_runner_requires_g3_g4_g5_violations(self):
+        import shutil
+        src = os.path.join(HERE, "fixtures", "x1")
+        fx = tempfile.mkdtemp()
+        for n in os.listdir(src):
+            if not n.startswith(("v-g3-", "v-g4-", "v-g5-")):
+                shutil.copy(os.path.join(src, n), fx)
+        r = run("--fixtures", fx)
+        self.assertNotEqual(r.returncode, 0, r.stdout[-300:])
+        self.assertIn("too few", r.stdout)
+        for g in ("G3", "G4", "G5"):
+            self.assertIn(g, r.stdout.split("too few")[1].rsplit(":", 1)[1])
+
+    def test_runner_requires_expected_reason(self):
+        import json
+        import shutil
+        fx = tempfile.mkdtemp()
+        with open(os.path.join(HERE, "fixtures", "x1", "v-g5-test-already-passes.json")) as f:
+            case = json.load(f)
+        case["reason_contains"] = "some other reason"
+        with open(os.path.join(fx, "v-x.json"), "w") as f:
+            json.dump(case, f)
+        r = run("--fixtures", fx)
+        self.assertIn("blocked 0/1", r.stdout)
 
     def test_runner_requires_g6_and_g7_violations(self):
         import shutil
