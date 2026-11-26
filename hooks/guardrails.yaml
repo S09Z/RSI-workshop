@@ -39,7 +39,7 @@ guardrails:
     proposed_mechanism: SubagentStop re-runs DONE_WHEN; WORKS + fail -> block   # proposed (report §9)
     hook: [hooks/g3_rerun_done_when.py]
     implemented: true
-    residual: after any SubagentStop block (this hook or another) the retry carries stop_hook_active and is let through; the Worker's TASK line picks which record is verified; code under test can forge the runner summary or patch the test (conftest.py, G14); the hook runs repo code outside any sandbox; hook state is protected only by the lexical G7/G8 checks; the settings timeout must exceed AGENT_DONEWHEN_TIMEOUT or the harness kills the hook and the stop is not blocked
+    residual: after any SubagentStop block (this hook or another) the retry carries stop_hook_active and is let through; the Worker's TASK line picks which record is verified; code under test can forge the runner summary or patch the test (conftest.py, G14); a repo unittest.py or pytest.py replaces the runner for the python3 -m forms; the hook runs repo code outside any sandbox; hook state is protected only by the lexical G7/G8 checks; the settings timeout must exceed AGENT_DONEWHEN_TIMEOUT or the harness kills the hook and the stop is not blocked
   - id: G4
     name: fresh evidence required
     enforces: VERIFICATION carries a command, result and ran_at from this run

@@ -1,5 +1,6 @@
 """Unit tests for hooks/lib/donewhen.py (G3/G4/G5 shared contract)."""
 import os
+import subprocess
 import sys
 import tempfile
 import time
@@ -90,6 +91,13 @@ class ParseValidate(unittest.TestCase):
             with self.subTest(cmd=cmd):
                 self.assertIsNotNone(self.check(cmd))
 
+    def test_backticks_around_the_whole_command(self):
+        self.assertIsNone(self.check("`pytest -q tests/test_a.py`"))
+        for cmd in ("`pytest tests/test_a.py` && `rm x`", "``pytest tests/test_a.py``", "pytest `tests/test_a.py`",
+                    "`pytest tests/test_a.py", "``"):
+            with self.subTest(cmd=cmd):
+                self.assertIsNotNone(self.check(cmd))
+
     def test_argsfile_and_non_py_rejected(self):
         put(self.root, "@args", "-p\nevil\n")
         put(self.root, "tests/data.txt")
@@ -100,6 +108,42 @@ class ParseValidate(unittest.TestCase):
         out = put(os.path.realpath(tempfile.mkdtemp(prefix="dw-out-")), "test_x.py")
         os.symlink(out, os.path.join(self.root, "tests", "test_link.py"))
         self.assertIsNotNone(self.check("pytest tests/test_link.py", "tests/test_link.py"))
+
+    def unittest_check(self, rel, *extra):
+        root = project()
+        put(root, rel)
+        for name in extra:
+            put(root, name)
+        d = dw.parse(prompt("python3 -m unittest " + rel, rel), root, "[T1] x")
+        return dw.validate(d, root)
+
+    def test_unittest_path_must_name_one_module(self):
+        for rel in ("tests/v1.2/test_a.py", "tests/test.a.py", "./tests/test_a.py", "tests/my-dir/test_a.py"):
+            with self.subTest(rel=rel):
+                self.assertIsNotNone(self.unittest_check(rel))
+
+    def test_unittest_link_without_py_suffix_rejected(self):
+        os.symlink(self.a, os.path.join(self.root, "tests", "alias"))
+        self.assertIsNotNone(self.check("python3 -m unittest tests/alias"))
+
+    def test_unittest_shadowed_module_rejected(self):
+        for rel, extra in (("tests/test_a.py", "tests/test_a/__init__.py"),
+                           ("tests/test_a.py", "tests/test_a.cpython-312-darwin.so"),
+                           ("tests/test_a.py", "tests/test_a.so"),
+                           ("tests/test_a.py", "tests.py"),
+                           ("test/test_a.py", "README"),
+                           ("types.py", "README")):
+            with self.subTest(rel=rel, extra=extra):
+                self.assertIsNotNone(self.unittest_check(rel, extra))
+
+    def test_unittest_ordinary_layouts_allowed(self):
+        for rel, extra in (("tests/test_a.py", "tests/__init__.py"),
+                           ("tests/unit/test_a.py", "tests/unit/data.txt"),
+                           ("test/test_a.py", "test/__init__.py"),
+                           ("test_a.py", "test_a.md"),
+                           ("tests/test_a.py", "tests/test_a_helper.so")):
+            with self.subTest(rel=rel, extra=extra):
+                self.assertIsNone(self.unittest_check(rel, extra))
 
     def test_git_root(self):
         sub = os.path.join(self.root, "tests")
@@ -143,6 +187,26 @@ class RunClassify(unittest.TestCase):
 
     def test_syntax_error_is_error(self):
         self.assertEqual(self.go("def (:\n").status, "error")
+
+    def test_unimportable_test_is_error(self):
+        for name, body in (("test_i.py", "from no_such_module_xyz import f\n" + FAIL),
+                           ("test_j.py", "import unittest\nfrom unittest import no_such_name\n")):
+            with self.subTest(name=name):
+                self.assertEqual(self.go(body, name=name).status, "error")
+
+    def test_planted_bytecode_is_not_run(self):
+        good = PASS.replace("pass\n", "self.assertEqual(1, 1)\n")
+        bad = PASS.replace("pass\n", "self.assertEqual(1, 2)\n")
+        f = put(self.root, "tests/test_t.py", good)
+        subprocess.run(["python3", "-c", "import py_compile, sys; py_compile.compile(sys.argv[1], doraise=True)", f],
+                       check=True, env={"PATH": os.environ["PATH"]})
+        stamp = os.stat(f)
+        put(self.root, "tests/test_t.py", bad)
+        os.utime(f, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
+        other = put(self.root, "tests/__pycache__/test_t_helper.cpython-312.pyc", "keep")
+        d = dw.Dispatch("T1", "test", ["python3", "-m", "unittest", "tests/test_t.py"], [f])
+        self.assertEqual(dw.run(d, self.root).status, "failed")  # not through go(): it would rewrite the source
+        self.assertTrue(os.path.exists(other))
 
     def test_timeout_kills_group(self):
         marker = os.path.join(self.root, "late")
@@ -199,6 +263,11 @@ class RunClassify(unittest.TestCase):
         self.assertEqual(self.go("", runner=run, name="test_e.py").status, "error")
         self.assertEqual(self.go(SKIP, runner=run, name="test_s.py").status, "error")
         self.assertEqual(self.go("def (:\n", runner=run, name="test_bad.py").status, "error")
+
+    @unittest.skipUnless(HAS_PYTEST, "pytest not installed")
+    def test_pytest_shadowing_package_is_error(self):
+        put(self.root, "tests/test_t/__init__.py", PASS)
+        self.assertEqual(self.go(FAIL, runner=("python3", "-m", "pytest", "-q")).status, "error")
 
     def test_timeout_seconds(self):
         old = os.environ.pop("AGENT_DONEWHEN_TIMEOUT", None)

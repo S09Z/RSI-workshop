@@ -28,10 +28,14 @@ The project's own CLAUDE.md (if any) holds its conventions, build and test comma
    Include a line `DONE_WHEN_FILES: <path>[, <path>…]` naming the acceptance test files; G8 hooks (once registered in settings.json) block the Worker from editing them.
    Also include one line `DONE_WHEN_CMD: <command>` that runs only those files: `pytest <files>`,
    `python3 -m pytest <files>` or `python3 -m unittest <files>` (no shell syntax, no directories, paths
-   relative to the git root). Run it yourself first and confirm the test fails: the G5 hook (once registered)
+   relative to the git root; if the session is not at the git root, use absolute paths in both lines).
+   Run it yourself first and confirm the test fails: the G5 hook (once registered)
    denies a dispatch whose test passes or does not run, and the command cannot change on a re-dispatch.
    If the failing test does not exist yet, first dispatch a Worker to write it, with the line
-   `TASK_KIND: write-test` in place of `DONE_WHEN_CMD:`.
+   `TASK_KIND: write-test` in place of `DONE_WHEN_CMD:`. That dispatch still has a `DONE_WHEN_FILES:` line,
+   listing existing tests to protect and never the file it is to write (G8 would block it); with nothing to
+   protect, write `DONE_WHEN_FILES: .no-done-when-files`. The test must import cleanly and fail inside a
+   test: have the same Worker add any missing stub, because an import error counts as "did not run".
 
 3. **Read the WORKER REPORT**
    - `WORKS` → confirm VERIFICATION shows a real passing run. If yes, mark done; if the evidence is missing, send it back.

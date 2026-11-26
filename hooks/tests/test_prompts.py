@@ -26,6 +26,15 @@ class Prompts(unittest.TestCase):
         self.assertLess(report.index("VERIFICATION:"), report.index("- ran_at:"))
         self.assertLess(report.index("- ran_at:"), report.index("ATTEMPTS:"))
 
+    def test_orchestrator_write_test_and_path_rules(self):
+        text = " ".join(read("orchestrator.md").split())
+        for needle in ("DONE_WHEN_FILES: .no-done-when-files", "never the file it is to write",
+                       "use absolute paths", "must import cleanly"):
+            self.assertIn(needle, text)
+
+    def test_worker_ran_at_on_every_works(self):
+        self.assertIn("Every `WORKS` report", " ".join(read("worker.md").split()))
+
     def test_frontmatter_kept(self):
         for name in ("orchestrator.md", "worker.md"):
             text = read(name)

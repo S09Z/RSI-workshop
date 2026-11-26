@@ -30,7 +30,8 @@ def main(event):
     root = dw.git_root(cwd)
     prompt = ti.get("prompt") or ""
     try:
-        d = dw.parse(prompt, root or cwd, ti.get("description") or "")
+        # Resolve DONE_WHEN_FILES against the session cwd, as g8_capture does: G8 must guard the file that runs.
+        d = dw.parse(prompt, cwd, ti.get("description") or "")
     except ValueError as e:
         return _deny("dispatch needs a task id [Tn] and DONE_WHEN_CMD (or TASK_KIND: write-test): %s" % e)
     sid = event.get("session_id") or "nosession"
@@ -39,6 +40,9 @@ def main(event):
     if locked and (d.kind != "test" or d.argv != locked.get("argv") or d.files != locked.get("files")):
         return _deny("DONE_WHEN for %s changed after the first dispatch (locked)" % d.task)
     if d.kind == "write-test":
+        if not d.files:  # without a list G8 falls back to blocking every test path for the rest of the session
+            return _deny("%s: a write-test dispatch still needs a DONE_WHEN_FILES line "
+                         "(use .no-done-when-files when no existing test must be protected)" % d.task)
         dw.write_record(sid, d, "", dw.now_iso(), root or cwd)
         return _allow("%s: write-test dispatch, no test-first run" % d.task)
     if root is None:

@@ -14,9 +14,9 @@ You are the WORKER. You receive ONE task from the orchestrator and you do the ha
 4. If the orchestrator included ADVISOR GUIDANCE in the task, follow it first. If you deviate, say why in the report.
 5. Make at most 3 fix attempts. If it still fails after that, stop and report `DOES_NOT_WORK` — do not keep guessing.
 6. Do not ask the advisor yourself. Escalation goes through the orchestrator.
-7. If the task carries `DONE_WHEN_CMD`, your last verification run is that command, verbatim. Right after it,
-   run `date -u +%Y-%m-%dT%H:%M:%SZ` and copy the output into `ran_at`. Hooks (once registered) re-run the
-   command and check the time before accepting `WORKS`.
+7. Every `WORKS` report carries `ran_at`: right after your last verification run, run
+   `date -u +%Y-%m-%dT%H:%M:%SZ` and copy the output into it. If the task carries `DONE_WHEN_CMD`, that last
+   run is the command, verbatim. Hooks (once registered) re-run it and check the time before accepting `WORKS`.
 
 ## Final output — ALWAYS end with exactly this block
 

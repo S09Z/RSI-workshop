@@ -4,7 +4,7 @@ import sys
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from helpers import PASSING, Env, Project  # noqa: E402
+from helpers import FAILING, PASSING, Env, Project  # noqa: E402
 
 HOOK = "g5_test_first.py"
 
@@ -44,6 +44,27 @@ class G5(unittest.TestCase):
         self.p.test(PASSING)
         self.deny(self.p.dispatch(), "already passes")
         self.assertIsNone(self.record())
+
+    def test_subdirectory_cwd_never_leaves_g8_guarding_another_file(self):
+        """G8 resolves DONE_WHEN_FILES against the session cwd, so G5 must resolve them the same way."""
+        pkg = os.path.join(self.p.root, "pkg")
+        os.makedirs(os.path.join(pkg, "tests"))
+        target = os.path.join(pkg, "tests", "test_sub.py")
+        with open(target, "w") as f:
+            f.write(FAILING)
+        cmd = "python3 -m unittest pkg/tests/test_sub.py"
+        root_relative = dict(self.p.dispatch(cmd=cmd, files="pkg/tests/test_sub.py"), cwd=pkg)
+        self.deny(root_relative, "absolute")
+        for files in ("tests/test_sub.py", target):
+            with self.subTest(files=files):
+                self.env = Env()
+                event = dict(self.p.dispatch(cmd=cmd, files=files), cwd=pkg)
+                self.allow(event)
+                self.assertEqual(self.env.run("g8_capture.py", event).returncode, 0)
+                edit = {"hook_event_name": "PreToolUse", "tool_name": "Edit", "session_id": "s1", "cwd": pkg,
+                        "agent_type": "worker", "agent_id": "a1", "tool_input": {"file_path": target}}
+                r = self.env.run("g8_worker_tests.py", edit)
+                self.assertEqual(r.returncode, 2, r.stderr)
 
     def test_zero_tests_denied(self):
         self.p.test("")
@@ -116,10 +137,32 @@ class G5(unittest.TestCase):
         self.p.test(PASSING)
         self.deny(self.p.dispatch(), "already passes")
 
-    def test_dispatch_from_subdirectory_resolves_at_root(self):
-        ev = self.p.dispatch()
-        ev["cwd"] = os.path.join(self.p.root, "tests")
-        self.allow(ev)
+    def test_write_test_needs_a_file_list(self):
+        self.deny(self.p.dispatch(cmd=None, kind="write-test", files=""), "DONE_WHEN_FILES")
+        self.assertIsNone(self.record())
+
+    def test_write_test_flow_under_g8(self):
+        """The Worker can create the new test, and G8 guards it from the first test dispatch that lists it."""
+        new = os.path.join(self.p.root, "tests", "test_added.py")
+
+        def dispatch(event):
+            self.allow(event)
+            self.assertEqual(self.env.run("g8_capture.py", event).returncode, 0)
+
+        def worker(tool, **tool_input):
+            return self.env.run("g8_worker_tests.py", {
+                "hook_event_name": "PreToolUse", "tool_name": tool, "session_id": "s1", "cwd": self.p.root,
+                "agent_type": "worker", "agent_id": "a1", "tool_input": tool_input})
+
+        dispatch(self.p.dispatch(cmd=None, kind="write-test", files=".no-done-when-files"))
+        r = worker("Write", file_path=new)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        r = worker("Bash", command="printf 'x = None\\n' > tests/test_added.py")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(new, "w") as f:
+            f.write(FAILING)
+        dispatch(self.p.dispatch(cmd="python3 -m unittest tests/test_added.py", files="tests/test_added.py"))
+        self.assertEqual(worker("Write", file_path=new).returncode, 2)
 
     def test_other_agent_and_tool_ignored(self):
         self.allow(self.p.dispatch(agent="advisor", cmd=None))

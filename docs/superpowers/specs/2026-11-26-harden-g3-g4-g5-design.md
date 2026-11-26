@@ -164,3 +164,16 @@ G4 checks format and window; G3 is the authority on truth. Record lookup as in G
 
 Regexes and the exact summary parsers, the state record fields beyond those named, helper names beyond §4,
 fixture content, and how the runner seeds `state`. Any call made while building goes in the ledger.
+
+## 9. Changes after the final review (2026-11-26)
+
+Made while fixing review findings; where they differ from the sections above, these apply.
+
+- §4.1, §4.3: `DONE_WHEN_FILES` resolves against the session cwd, as `g8_capture.py` does; the command still runs
+  in the git root. From a subdirectory the dispatch needs absolute paths. A `write-test` dispatch also needs a
+  `DONE_WHEN_FILES` line, without the file to be written (`.no-done-when-files` when empty). G8 is unchanged.
+- §4.2: for `unittest`, the path must map to exactly one module (identifiers only, nothing shadowing it); an
+  import failure is `error`; cached bytecode of the test files is removed before a run; one pair of backticks
+  around the whole command is accepted.
+- §4.6: every `WORKS` report carries `ran_at`, including `write-test` ones (as §4.5 requires).
+

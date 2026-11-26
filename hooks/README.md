@@ -40,7 +40,14 @@ the Harden phase (ADR-0001) for **G1-G8**. Agents may not write here
   `python3 -m unittest`, with a few options, naming `.py` files listed in `DONE_WHEN_FILES` inside the git root.
   The run uses no shell, `cwd` = git root, a short environment allowlist, and `AGENT_DONEWHEN_TIMEOUT`
   seconds (default 120). Keep the hook `timeout` in settings above it: a hook the harness kills does not block.
-  pytest runs with `-p no:cacheprovider -o addopts=`.
+  pytest runs with `-p no:cacheprovider -o addopts=`, and cached bytecode of the test files is removed first.
+  - `DONE_WHEN_FILES` paths resolve against the session cwd (as G8 does), the command runs in the git root:
+    from a subdirectory use absolute paths.
+  - `unittest` imports a path as a module, so every part of it must be a Python identifier and nothing else may
+    answer to that module name (a same-named package or extension, a standard library module such as `test/`
+    without `__init__.py`). A test that cannot be imported counts as "did not run".
+  - A `write-test` dispatch still needs a `DONE_WHEN_FILES` line that does not list the file to be written
+    (`.no-done-when-files` when nothing needs protecting).
 - Residual risk (all need the sandbox; none is closed by these hooks):
   - G2: Bash writes by the Orchestrator; write-capable MCP tools.
   - G8: Bash analysis is lexical, so a path built at run time inside a script, base64, or another interpreter is not seen;
@@ -56,7 +63,8 @@ the Harden phase (ADR-0001) for **G1-G8**. Agents may not write here
   - G3, G4, G5: after any SubagentStop block (G1, G3 or G4) the Worker's retry is not re-checked (retry cap);
     the report's `TASK:` id picks the record G3 verifies; code under test runs inside the hook and can forge the
     runner's summary; `ran_at` is self-reported; `TASK_KIND: write-test` skips G5 and G3 for that dispatch
-    (logged); records expire after 24 hours.
+    (logged); records expire after 24 hours; a `unittest.py` or `pytest.py` in the git root replaces the runner for
+    the `python3 -m` forms; a `write-test` Worker can edit any test that no earlier dispatch listed.
   - Over-blocking is accepted: a Bash write through an unresolved `$VAR` is denied when DONE_WHEN files are known.
 
 ## Run the checks

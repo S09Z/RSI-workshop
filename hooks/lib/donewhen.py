@@ -11,6 +11,7 @@ import shlex
 import shutil
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 from dataclasses import dataclass
@@ -54,10 +55,13 @@ def parse(prompt: str, cwd: str, description: str = "") -> Dispatch:
                 files.append(os.path.realpath(os.path.join(cwd, tok)))
     argv = []
     if cmds:
-        bad = sorted(set(cmds[0]) & set(META))
+        text = cmds[0]
+        if len(text) > 1 and text[0] == text[-1] == "`":
+            text = text[1:-1]  # one markdown code span around the whole command
+        bad = sorted(set(text) & set(META))
         if bad:
             raise ValueError("shell metacharacter %r in DONE_WHEN_CMD" % "".join(bad))
-        argv = shlex.split(cmds[0])
+        argv = shlex.split(text)
         if not argv:
             raise ValueError("DONE_WHEN_CMD is empty")
     return Dispatch(m.group(1), "write-test" if write else "test", argv, sorted(set(files)))
@@ -74,6 +78,44 @@ def _runner(argv):
 
 def _inside(path, root):
     return os.path.commonpath([path, root]) == root
+
+
+# "test" is the standard library's own test package, which stdlib_module_names leaves out.
+STDLIB = frozenset(getattr(sys, "stdlib_module_names", ())) | {"test"}
+
+
+def _module_files(folder, part):
+    """Names in folder that Python could import as the module `part`."""
+    try:
+        names = os.listdir(folder)
+    except OSError:
+        return []
+    return [n for n in names if n in (part + ".py", part + ".pyc")
+            or (n.startswith(part + ".") and n.endswith((".so", ".pyd")))]
+
+
+def _module_problem(tok, root):
+    """unittest imports a path as a dotted module name. None when that name can only mean the named file."""
+    name = os.path.relpath(tok, root) if os.path.isabs(tok) else tok
+    parts = name[:-3].split(os.sep)
+    if not name.endswith(".py") or not all(p.isidentifier() for p in parts):
+        return ("unittest imports %s as a module: it must end in .py and every part of the path below the git root "
+                "must be a Python identifier" % tok)
+    folder = root
+    for i, part in enumerate(parts):
+        entry = os.path.join(folder, part)
+        leaf = i == len(parts) - 1
+        package = bool(_module_files(entry, "__init__"))
+        if i == 0 and part in STDLIB and (leaf or not package):
+            return "unittest would import the standard library module %r instead of %s" % (part, tok)
+        if leaf:
+            shadow = package or any(n.endswith((".so", ".pyd")) for n in _module_files(folder, part))
+        else:
+            shadow = not package and bool(_module_files(folder, part))
+        if shadow:
+            return "unittest would import another module named %r instead of %s" % (part, tok)
+        folder = entry
+    return None
 
 
 def validate(d: Dispatch, root: str) -> Optional[str]:
@@ -102,9 +144,14 @@ def validate(d: Dispatch, root: str) -> Optional[str]:
         if not real.endswith(".py") or not os.path.isfile(real):
             return "%s is not an existing .py test file" % tok
         if real not in d.files:
-            return "%s is not listed in DONE_WHEN_FILES" % tok
+            return ("%s is not listed in DONE_WHEN_FILES (those paths resolve against the session cwd, the command "
+                    "runs in the git root; if the two differ, use absolute paths in DONE_WHEN_FILES)" % tok)
         if not _inside(real, root):
             return "%s resolves outside the git root %s" % (tok, root)
+        if runner == "unittest":
+            why = _module_problem(tok, root)
+            if why:
+                return why
         positionals += 1
     if not positionals:
         return "name at least one test file (no discovery runs)"
@@ -170,6 +217,8 @@ def _counts(runner, out):
 def classify(runner: str, returncode: Optional[int], out: str):
     """(status, passed, failed). Anything that is not a clear pass or a clear test failure is an error."""
     passed, failed = _counts(runner, out)
+    if runner == "unittest" and re.search(r"^ERROR: [^\n]*\(unittest\.loader\._FailedTest\b", out, re.M):
+        return "error", passed, failed  # a test module that cannot be imported, like pytest's collection error
     if returncode == 0 and passed >= 1 and failed == 0:
         return "passed", passed, failed
     if returncode == 1 and failed >= 1:
@@ -182,6 +231,20 @@ def _kill_group(proc):
         os.killpg(proc.pid, signal.SIGKILL)
     except (ProcessLookupError, PermissionError):
         pass
+
+
+def _drop_cached_bytecode(paths):
+    """Remove the cached bytecode of the test files, so the source that G8 guards is what runs."""
+    for path in paths:
+        folder = os.path.join(os.path.dirname(path), "__pycache__")
+        stem = os.path.splitext(os.path.basename(path))[0]
+        try:
+            names = os.listdir(folder)
+        except (FileNotFoundError, NotADirectoryError):
+            continue
+        for name in names:
+            if name.startswith(stem + ".") and name.endswith(".pyc"):
+                os.remove(os.path.join(folder, name))  # a failure raises, so the hook denies
 
 
 def run(d: Dispatch, root: str, timeout: Optional[float] = None) -> RunResult:
@@ -200,6 +263,7 @@ def run(d: Dispatch, root: str, timeout: Optional[float] = None) -> RunResult:
     exe = shutil.which(argv[0], path=env["PATH"]) if env["PATH"] else None
     if not exe:
         return RunResult("error", 127, 0, 0, "%s not found on PATH" % argv[0])
+    _drop_cached_bytecode(d.files + [os.path.join(root, a.split("::")[0]) for a in argv[1:] if ".py" in a])
     # Output goes to a file, not a pipe: a surviving grandchild must not be able to hang the hook
     # (a hook the harness times out does not block).
     with tempfile.TemporaryFile() as log:
